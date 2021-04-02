@@ -122,6 +122,7 @@ static inline void *
 hypre_HostMalloc(size_t size, HYPRE_Int zeroinit)
 {
    void *ptr = NULL;
+   // fprintf(stderr, "alloc: %d \n",size);
 
    if (zeroinit)
    {

@@ -6,21 +6,22 @@
 ########################################################################
 # Compiler and external dependences
 ########################################################################
-CC        = mpicc
-F77       = mpif77
-CXX       = mpicxx
-F90       = mpifort
+CC        = mpincc
+F77       = mpinfort
+CXX       = mpinc++
+F90       = mpinfort
 HYPRE_DIR = ../hypre
 
 ########################################################################
 # Compiling and linking options
 ########################################################################
-COPTS     = -g -Wall
+# COPTS     = -g -traceback=verbose -Wall -fopenmp -report-all -fdiag-vector=3  -finline-functions -finline-max-depth=5 -finline-max-function-size=200
+COPTS	= -O2 -fopenmp -ftrace
 CINCLUDES = -I$(HYPRE_DIR)/include
 #CDEFS     = -DHYPRE_EXVIS
-CDEFS     = 
+CDEFS     =
 CFLAGS    = $(COPTS) $(CINCLUDES) $(CDEFS)
-FOPTS     = -g
+# FOPTS     = -g -traceback=verbose -fopenmp -report-all -fdiag-vector=3  -finline-functions -finline-max-depth=5 -finline-max-function-size=200
 FINCLUDES = $(CINCLUDES)
 FFLAGS    = $(FOPTS) $(FINCLUDES)
 CXXOPTS   = $(COPTS) -Wno-deprecated
@@ -33,8 +34,11 @@ F90FLAGS = $(FFLAGS) $(IF90FLAGS)
 
 
 LINKOPTS  = $(COPTS)
-LIBS      = -L$(HYPRE_DIR)/lib -lHYPRE -lm
-LFLAGS    = $(LINKOPTS) $(LIBS) -lstdc++
+BLAS      = -L/opt/nec/ve/nlc/2.2.0/lib/ -lblas_openmp -lsblas_openmp
+#LAPACK    = -L/opt/nec/ve/nlc/2.1.0/lib/ -llapack
+LIBS      = $(BLAS) $(LAPACK) -L$(HYPRE_DIR)/lib -lHYPRE -lm -lpthread
+
+LFLAGS    = $(LINKOPTS) $(LIBS) #-lstdc++
 LFLAGS_B =\
  -L${HYPRE_DIR}/lib\
  -lbHYPREClient-C\

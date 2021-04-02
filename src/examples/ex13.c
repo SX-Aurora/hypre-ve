@@ -12,7 +12,7 @@
 
    Compile with:   make ex13
 
-   Sample run:     mpirun -np 6 ex13 -n 10
+   Sample run:     mpirun -np 3 ex13 -n 10
 
    To see options: ex13 -help
 

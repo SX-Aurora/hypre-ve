@@ -110,6 +110,18 @@ hypre_COGMRESCreate( hypre_COGMRESFunctions *cogmres_functions )
 
    HYPRE_ANNOTATE_FUNC_END;
 
+#ifdef HYPRE_VE
+  extern char *avals_ptr;
+  extern sblas_handle_t *sblas_ptr;
+  INC_HND = 0;
+
+  if (avals_ptr == NULL) {
+    avals_ptr = hypre_TAlloc(char, NN * 32, HYPRE_MEMORY_HOST);
+    sblas_ptr = hypre_TAlloc(sblas_handle_t, NN, HYPRE_MEMORY_HOST);
+   //  fprintf(stderr, "COGMRES array of pointers has been allocated\n");
+  }
+#endif
+
    return (void *) cogmres_data;
 }
 

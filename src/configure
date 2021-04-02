@@ -5518,6 +5518,9 @@ else
     CFLAGS=
   fi
 fi
+
+CFLAGS=""
+
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for $CC option to accept ISO C89" >&5
 $as_echo_n "checking for $CC option to accept ISO C89... " >&6; }
 if ${ac_cv_prog_cc_c89+:} false; then :
@@ -7914,7 +7917,7 @@ then
         CFLAGS="-fast +K3"
         ;;
       *)
-        CFLAGS="-O"
+        CFLAGS=""
         ;;
    esac
 fi
@@ -8987,7 +8990,7 @@ test "x$prefix" = xNONE && prefix=$ac_default_prefix
 # Let make expand exec_prefix.
 test "x$exec_prefix" = xNONE && exec_prefix='${prefix}'
 
-DEFS=-DHAVE_CONFIG_H
+DEFS="-DHAVE_CONFIG_H -DHYPRE_VE"
 
 ac_libobjs=
 ac_ltlibobjs=

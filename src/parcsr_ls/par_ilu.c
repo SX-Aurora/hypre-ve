@@ -1238,27 +1238,27 @@ hypre_ILUMaxrHeapRemoveRabsI(HYPRE_Real *heap, HYPRE_Int *I1, HYPRE_Int len)
  * len: length of the array
  */
 HYPRE_Int
-hypre_ILUMaxQSplitRabsI(HYPRE_Real *array, HYPRE_Int *I, HYPRE_Int left, HYPRE_Int bound, HYPRE_Int right)
+hypre_ILUMaxQSplitRabsI(HYPRE_Real *array, HYPRE_Int *II, HYPRE_Int left, HYPRE_Int bound, HYPRE_Int right)
 {
    HYPRE_Int i, last;
    if (left >= right)
    {
       return hypre_error_flag;
    }
-   hypre_swap2(I,array,left,(left+right)/2);
+   hypre_swap2(II,array,left,(left+right)/2);
    last = left;
    for(i = left + 1 ; i <= right ; i ++)
    {
       if(hypre_abs(array[i]) > hypre_abs(array[left]))
       {
-         hypre_swap2(I,array,++last,i);
+         hypre_swap2(II,array,++last,i);
       }
    }
-   hypre_swap2(I,array,left,last);
-   hypre_ILUMaxQSplitRabsI(array,I,left,bound,last-1);
+   hypre_swap2(II,array,left,last);
+   hypre_ILUMaxQSplitRabsI(array,II,left,bound,last-1);
    if(bound > last)
    {
-       hypre_ILUMaxQSplitRabsI(array,I,last+1,bound,right);
+       hypre_ILUMaxQSplitRabsI(array,II,last+1,bound,right);
    }
 
    return hypre_error_flag;
