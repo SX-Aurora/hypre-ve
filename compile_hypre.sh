@@ -1,6 +1,6 @@
 #!/bin/bash
 
-source /opt/nec/ve/nlc/2.2.0/bin/nlcvars.sh
+source /opt/nec/ve/nlc/2.3.0/bin/nlcvars.sh
 source /opt/nec/ve/mpi/2.14.0/bin/necmpivars.sh
 
 HYPRE_ROOT=${HOME}/git/HYPRE/hypre_org
@@ -9,7 +9,7 @@ PREFIX=${HYPRE_ROOT}/build
 COMPILER_ROOT=/opt/nec/ve/mpi/2.14.0/bin64
 
 FTRACE=0
-DEBUG=1
+DEBUG=0
 MPI_PERF=0
 INLINE=1
 
@@ -53,22 +53,13 @@ then
 
 fi
 
-# echo ${FC_FLAGS}
 ${COMPILER_ROOT}/mpincc --version
 
 pushd ${HYPRE_ROOT}/src
 
 make clean
 
-# CC=${COMPILER_ROOT}/mpincc ./configure \
-#                 --disable-fortran \
-#                 --with-MPI \
-#                 --with-openmp \
-#                 --with-extra-CFLAGS="${CC_EXTRAFLAGS}" \
-#                 --prefix="${PREFIX}"
-
-CC=${COMPILER_ROOT}/mpincc ./configure \
-                --disable-fortran \
+CC=${COMPILER_ROOT}/mpincc FC=${COMPILER_ROOT}/mpinfort ./configure \
                 --with-MPI \
                 --with-openmp \
                 --with-extra-CFLAGS="${CC_EXTRAFLAGS}" \
@@ -80,11 +71,3 @@ CC=${COMPILER_ROOT}/mpincc ./configure \
 make install
 
 popd
-
-
-# FC_FLAGS="-ftrace -fopenmp -msched-interblock -O2 "
-# CC_EXTRAFLAGS="-ftrace -fopenmp  -msched-interblock -O2 -report-all -fdiag-vector=3  "
-
-# HYPRE_ROOT=/home/nec/emorsi/git/HYPRE/hypre
-# PREFIX=/home/nec/emorsi/git/HYPRE/build
-# COMPILER_ROOT=/opt/nec/ve/mpi/2.11.0/bin64
