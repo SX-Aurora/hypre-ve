@@ -381,13 +381,14 @@ HYPRE_Int hypre_CSRMatrixMatvecOutOfPlaceHost(
       hnd = sblas_ptr[f];
     }
 
-    // memcpy(y_data, b_data, sizeof(HYPRE_Complex) * num_rows);
-#ifdef HYPRE_USING_OPENMP
-#pragma omp parallel for private(i, j) HYPRE_SMP_SCHEDULE
-#endif
-    for (i = 0; i < num_rows; i++) {
-      y_data[i] = b_data[i];
-    }
+    memcpy(y_data, b_data, sizeof(HYPRE_Complex) * num_rows);
+
+    // #ifdef HYPRE_USING_OPENMP
+    // #pragma omp parallel for private(i, j) HYPRE_SMP_SCHEDULE
+    // #endif
+    //     for (i = 0; i < num_rows; i++) {
+    //       y_data[i] = b_data[i];
+    //     }
 
     // y_data= b_data;
     // ftrace_region_begin("sblas_execute_mv_rd");
@@ -402,8 +403,8 @@ HYPRE_Int hypre_CSRMatrixMatvecOutOfPlaceHost(
       sprintf(&avals_ptr[INC_HND * 32], "%p", A_data);
       // avals_ptr[INC_HND] = (HYPRE_BigInt)A_data;
       // fprintf(stderr,
-      //         "* Memory alloc for handler: A_data %p - %d \tNNZ %d \t INC %d\n",
-      //         A_data, A_data, l_nnz, INC_HND);
+      //         "* Memory alloc for handler: A_data %p - %d \tNNZ %d \t INC
+      //         %d\n", A_data, A_data, l_nnz, INC_HND);
 
       INC_HND++;
     }
@@ -548,7 +549,7 @@ HYPRE_Int hypre_CSRMatrixMatvecTHost(HYPRE_Complex alpha, hypre_CSRMatrix *A,
    *-----------------------------------------------------------------------*/
 
   temp = beta / alpha;
-   HYPRE_Complex mult = 0;
+  HYPRE_Complex mult = 0;
 
   if (temp != 1.0) {
     if (temp == 0.0) {
@@ -572,9 +573,10 @@ HYPRE_Int hypre_CSRMatrixMatvecTHost(HYPRE_Complex alpha, hypre_CSRMatrix *A,
    *-----------------------------------------------------------------*/
   num_threads = hypre_NumThreads();
   if (num_threads > 1) {
+#ifndef HYPRE_VE
     y_data_expand =
         hypre_CTAlloc(HYPRE_Complex, num_threads * y_size, HYPRE_MEMORY_HOST);
-
+#endif
     if (num_vectors == 1) {
 #ifndef HYPRE_VE
 #ifdef HYPRE_USING_OPENMP
@@ -652,10 +654,10 @@ HYPRE_Int hypre_CSRMatrixMatvecTHost(HYPRE_Complex alpha, hypre_CSRMatrix *A,
         // sprintf(&avals_ptr[INC_HND * 32], "%p", A_data);
         strncpy(&avals_ptr[INC_HND * 32], tmp, 32);
         // avals_ptr[INC_HND] = (HYPRE_BigInt)A_data;
-      //   fprintf(
-      //       stderr,
-      //       "- Memory alloc for handler: A_data %s - %d \tNNZ %d \t INC %d\n",
-      //       tmp, A_data, l_nnz, INC_HND);
+        //   fprintf(
+        //       stderr,
+        //       "- Memory alloc for handler: A_data %s - %d \tNNZ %d \t INC
+        //       %d\n", tmp, A_data, l_nnz, INC_HND);
 
         INC_HND++;
       }
@@ -672,9 +674,9 @@ HYPRE_Int hypre_CSRMatrixMatvecTHost(HYPRE_Complex alpha, hypre_CSRMatrix *A,
         }
       }
     }
-
+#ifndef HYPRE_VE
     hypre_TFree(y_data_expand, HYPRE_MEMORY_HOST);
-
+#endif
   } else {
     for (i = 0; i < num_rows; i++) {
       if (num_vectors == 1) {
