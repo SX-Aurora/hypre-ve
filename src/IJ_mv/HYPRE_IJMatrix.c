@@ -483,10 +483,8 @@ HYPRE_Int HYPRE_IJMatrixSetValues2(HYPRE_IJMatrix matrix, HYPRE_Int nrows,
     }
 
     if (hypre_IJMatrixOMPFlag(ijmatrix)) {
-      printf("hypre_IJMatrixOMPFlag\n");
       hypre_IJMatrixSetValuesOMPParCSR(ijmatrix, nrows, ncols_tmp, rows,
                                        row_indexes_tmp, cols, values);
-      printf("finish hypre_IJMatrixSetValuesOMPParCSR\n");
 
     } else {
       hypre_IJMatrixSetValuesParCSR(ijmatrix, nrows, ncols_tmp, rows,
