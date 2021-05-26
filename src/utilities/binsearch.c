@@ -55,6 +55,7 @@ HYPRE_Int hypre_BigBinarySearch(HYPRE_BigInt *list, HYPRE_BigInt value, HYPRE_In
 
    low = 0;
    high = list_length-1;
+   #pragma _NEC novector
    while (not_found && low <= high)
    {
       m = low + (high-low) / 2;

@@ -495,7 +495,7 @@ HYPRE_Int hypre_SeqVectorAxpy(HYPRE_Complex alpha, hypre_Vector *x,
 #endif
 
 #else
-HYPRE_Int i;
+int i;
 #pragma omp parallel for private(i) HYPRE_SMP_SCHEDULE
   for (i = 0; i < size; i++) {
     y_data[i] += alpha * x_data[i];
@@ -559,7 +559,7 @@ HYPRE_Real hypre_SeqVectorInnerProd(hypre_Vector *x, hypre_Vector *y) {
 #else
 #ifndef HYPRE_COMPLEX
   HYPRE_Int i;
-#pragma omp parallel for private(i) reduction(+ : result)
+#pragma omp parallel for private(i) reduction(+ : result) if(size > 2048)
   for (i = 0; i < size; i++) {
     result += y_data[i] * x_data[i];
   }

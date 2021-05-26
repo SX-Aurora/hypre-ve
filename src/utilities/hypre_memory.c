@@ -214,7 +214,10 @@ static inline void *hypre_MAlloc_core(size_t size, HYPRE_Int zeroinit,
     hypre_WrongMemoryLocation();
   }
 #else
-  ptr = calloc(size, sizeof(size_t));
+  ptr = calloc(size, 1);
+  if (!ptr) {
+    ptr = malloc(size);
+  }
 #endif
 
   if (!ptr) {
@@ -296,7 +299,7 @@ static inline void hypre_Free_core(void *ptr, hypre_MemoryLocation location) {
     hypre_WrongMemoryLocation();
   }
 #else
-free(ptr);
+  free(ptr);
 #endif
 }
 
