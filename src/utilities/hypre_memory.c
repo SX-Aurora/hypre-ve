@@ -196,6 +196,7 @@ static inline void *hypre_MAlloc_core(size_t size, HYPRE_Int zeroinit,
   }
 
   void *ptr = NULL;
+
 #ifndef __ve__
   switch (location) {
   case hypre_MEMORY_HOST:
@@ -214,13 +215,19 @@ static inline void *hypre_MAlloc_core(size_t size, HYPRE_Int zeroinit,
     hypre_WrongMemoryLocation();
   }
 #else
-  ptr = calloc(size, 1);
-  if (!ptr) {
+  // ptr = calloc(size, 1);
+  // if (!ptr) 
     ptr = malloc(size);
+  // ptr = aligned_alloc(128, size);
+  // printf("allocate memory %zu\n", size);
+  if(ptr && zeroinit){
+    memset(ptr, 0, size);
+    
   }
 #endif
 
   if (!ptr) {
+    fprintf(stderr, "could allocate data of size %zu\n", size);
     hypre_OutOfMemory(size);
     hypre_MPI_Abort(hypre_MPI_COMM_WORLD, -1);
   }
@@ -281,7 +288,6 @@ static inline void hypre_Free_core(void *ptr, hypre_MemoryLocation location) {
   assert(location == tmp);
 #endif
 
-#ifndef __ve__
   switch (location) {
   case hypre_MEMORY_HOST:
     hypre_HostFree(ptr);
@@ -298,9 +304,7 @@ static inline void hypre_Free_core(void *ptr, hypre_MemoryLocation location) {
   default:
     hypre_WrongMemoryLocation();
   }
-#else
-  free(ptr);
-#endif
+
 }
 
 void _hypre_Free(void *ptr, hypre_MemoryLocation location) {
