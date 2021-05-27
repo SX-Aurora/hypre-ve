@@ -52,12 +52,14 @@ HYPRE_Int hypre_CSRMatrixMatvecOutOfPlaceHost(
   HYPRE_Real xpar = 0.7;
   hypre_Vector *x_tmp = NULL;
 
-  extern int INC_HND;
+  // #ifdef __ve__
+  //   extern int INC_HND;
 
-  // extern HYPRE_Complex **avals_ptr;
-  // extern HYPRE_BigInt *avals_ptr;
-  extern char *avals_ptr;
-  extern sblas_handle_t *sblas_ptr;
+  //   // extern HYPRE_Complex **avals_ptr;
+  //   // extern HYPRE_BigInt *avals_ptr;
+  //   extern char *avals_ptr;
+  //   extern sblas_handle_t *sblas_ptr;
+  // #endif
 
   /*---------------------------------------------------------------------
    *  Check for size compatibility.  Matvec returns ierr = 1 if
@@ -200,7 +202,7 @@ HYPRE_Int hypre_CSRMatrixMatvecOutOfPlaceHost(
         y_data[i] *= alpha;
     }
   } else { // JSP: this is currently the only path optimized
-#ifndef HYPRE_VE
+#ifndef __ve__
 #ifdef HYPRE_USING_OPENMP
 #pragma omp parallel private(i, jj, tempx)
 #endif
@@ -336,27 +338,25 @@ HYPRE_Int hypre_CSRMatrixMatvecOutOfPlaceHost(
 #else
     sblas_int_t mrow = (sblas_int_t)num_rows;
     sblas_int_t ncol = (sblas_int_t)num_cols;
-    HYPRE_Int l_nnz = A_i[num_rows] - A_i[0];
+    // HYPRE_Int l_nnz = A_i[num_rows] - A_i[0];
 
     //  fprintf(stderr, "Rows: %d \t Cols: %d \n", mrow, ncol);
 
-    sblas_int_t *iaptr = A_i;
-    sblas_int_t *iaind = A_j;
-    double *avals = A_data;
+    // HYPRE_Int f = -1;
+    // // HYPRE_BigInt tmp_add = (HYPRE_BigInt) A_data;
+    // char tmp[32];
+    // sprintf(tmp, "%p", A_data);
 
-    HYPRE_Int f = -1;
-    // HYPRE_BigInt tmp_add = (HYPRE_BigInt) A_data;
-    char tmp[32];
-    sprintf(tmp, "%p", A_data);
+    // for (i = 0; i < INC_HND; i++) {
+    //   if (strncmp(tmp, &avals_ptr[i * 32], 32) == 0) {
+    //     f = i;
+    //     break;
+    //   }
+    // }
 
-    for (i = 0; i < INC_HND; i++) {
-      if (strncmp(tmp, &avals_ptr[i * 32], 32) == 0) {
-        f = i;
-        break;
-      }
-    }
-
-    sblas_handle_t hnd;
+    // sblas_handle_t hnd;
+    // if (f == -1)
+    // hnd = sblas_ptr[INC_HND++]
     sblas_int_t ierr;
 
     // fprintf(stderr, "Memory alloc for handler: A_data %p - %d \tNNZ %d ",
@@ -368,46 +368,56 @@ HYPRE_Int hypre_CSRMatrixMatvecOutOfPlaceHost(
     ftrace_region_begin("SBLAS_HYPRE");
 #endif
 
-    if (f == -1) {
+    if (!A->hnd) {
+      HYPRE_Complex *A_data = hypre_CSRMatrixData(A);
+      
+      sblas_int_t *iaptr = A_i;
+      sblas_int_t *iaind = A_j;
+      double *avals = A_data;
+
+      fprintf(stderr, "* Memory alloc for handler: A_data %p - %d \n", A_data,
+              A_data);
       ierr = sblas_create_matrix_handle_from_csr_rd(
           mrow, ncol, iaptr, iaind, avals, SBLAS_INDEXING_0, SBLAS_GENERAL,
-          &hnd); // handler
-
+          &A->hnd); // handler
+      if (ierr == SBLAS_OK)
+        free(A_data);
       // ftrace_region_begin("sblas_analyze_mv_rd");
-      ierr = sblas_analyze_mv_rd(SBLAS_NON_TRANSPOSE, hnd);
+      ierr = sblas_analyze_mv_rd(SBLAS_NON_TRANSPOSE, A->hnd);
       // ftrace_region_end("sblas_analyze_mv_rd");
-    } else {
-      // fprintf(stderr, "similarity @%d\n", f);
-      hnd = sblas_ptr[f];
     }
+    // else {
+    //   // fprintf(stderr, "similarity @%d\n", f);
+    //   hnd = sblas_ptr[f];
+    // }
 
-    memcpy(y_data, b_data, sizeof(HYPRE_Complex) * num_rows);
+    // memcpy(y_data, b_data, sizeof(HYPRE_Complex) * num_rows);
 
-    // #ifdef HYPRE_USING_OPENMP
-    // #pragma omp parallel for private(i, j) HYPRE_SMP_SCHEDULE
-    // #endif
-    //     for (i = 0; i < num_rows; i++) {
-    //       y_data[i] = b_data[i];
-    //     }
+#ifdef HYPRE_USING_OPENMP
+#pragma omp parallel for private(i, j) HYPRE_SMP_SCHEDULE
+#endif
+    for (i = 0; i < num_rows; i++) {
+      y_data[i] = b_data[i];
+    }
 
     // y_data= b_data;
     // ftrace_region_begin("sblas_execute_mv_rd");
 
-    ierr = sblas_execute_mv_rd(SBLAS_NON_TRANSPOSE, hnd, alpha, x_data,
+    ierr = sblas_execute_mv_rd(SBLAS_NON_TRANSPOSE, A->hnd, alpha, x_data,
                                alpha * temp, y_data);
     // ftrace_region_end("sblas_execute_mv_rd");
 
-    if (f == -1) {
-      sblas_duplicate_handle(hnd, &sblas_ptr[INC_HND]);
-      ierr = sblas_destroy_matrix_handle(hnd);
-      sprintf(&avals_ptr[INC_HND * 32], "%p", A_data);
-      // avals_ptr[INC_HND] = (HYPRE_BigInt)A_data;
-      // fprintf(stderr,
-      //         "* Memory alloc for handler: A_data %p - %d \tNNZ %d \t INC
-      //         %d\n", A_data, A_data, l_nnz, INC_HND);
+    // if (f == -1) {
+    //   sblas_duplicate_handle(hnd, &sblas_ptr[INC_HND]);
+    //   ierr = sblas_destroy_matrix_handle(hnd);
+    //   sprintf(&avals_ptr[INC_HND * 32], "%p", A_data);
+    //   // avals_ptr[INC_HND] = (HYPRE_BigInt)A_data;
+    //   // fprintf(stderr,
+    //   //         "* Memory alloc for handler: A_data %p - %d \tNNZ %d \t INC
+    //   //         %d\n", A_data, A_data, l_nnz, INC_HND);
 
-      INC_HND++;
-    }
+    //   INC_HND++;
+    // }
 
     // ierr = sblas_destroy_matrix_handle(hnd);
 #ifdef _FTRACE
@@ -500,10 +510,11 @@ HYPRE_Int hypre_CSRMatrixMatvecTHost(HYPRE_Complex alpha, hypre_CSRMatrix *A,
 
   hypre_Vector *x_tmp = NULL;
 
-#ifdef HYPRE_VE
-  extern char *avals_ptr;
-  extern sblas_handle_t *sblas_ptr;
-#endif
+  // #ifdef __ve__
+  //   extern char *avals_ptr;
+  //   extern sblas_handle_t *sblas_ptr;
+  // #endif
+
   /*---------------------------------------------------------------------
    *  Check for size compatibility.  MatvecT returns ierr = 1 if
    *  length of X doesn't equal the number of rows of A,
@@ -573,12 +584,12 @@ HYPRE_Int hypre_CSRMatrixMatvecTHost(HYPRE_Complex alpha, hypre_CSRMatrix *A,
    *-----------------------------------------------------------------*/
   num_threads = hypre_NumThreads();
   if (num_threads > 1) {
-#ifndef HYPRE_VE
+#ifndef __ve__
     y_data_expand =
         hypre_CTAlloc(HYPRE_Complex, num_threads * y_size, HYPRE_MEMORY_HOST);
 #endif
     if (num_vectors == 1) {
-#ifndef HYPRE_VE
+#ifndef __ve__
 #ifdef HYPRE_USING_OPENMP
 #pragma omp parallel private(i, jj, j, my_thread_num, offset)
 #endif
@@ -610,57 +621,61 @@ HYPRE_Int hypre_CSRMatrixMatvecTHost(HYPRE_Complex alpha, hypre_CSRMatrix *A,
       // fprintf(stderr, "From THost \n");
       sblas_int_t mrow = (sblas_int_t)num_rows;
       sblas_int_t ncol = (sblas_int_t)num_cols;
-      HYPRE_Int l_nnz = A_i[num_rows] - A_i[0];
+      // HYPRE_Int l_nnz = A_i[num_rows] - A_i[0];
 
       sblas_int_t *iaptr = A_i;
       sblas_int_t *iaind = A_j;
       double *avals = A_data;
 
-      HYPRE_Int f = -1;
+      // HYPRE_Int f = -1;
       // HYPRE_BigInt tmp_add = (HYPRE_BigInt) A_data;
-      char tmp[32];
-      sprintf(tmp, "%p", A_data);
-      tmp[1] = 'T';
+      // char tmp[32];
+      // sprintf(tmp, "%p", A_data);
+      // tmp[1] = 'T';
 
-      for (i = 0; i < INC_HND; i++) {
-        if (strncmp(tmp, &avals_ptr[i * 32], 32) == 0) {
-          f = i;
-          break;
-        }
-      }
+      // for (i = 0; i < INC_HND; i++) {
+      //   if (strncmp(tmp, &avals_ptr[i * 32], 32) == 0) {
+      //     f = i;
+      //     break;
+      //   }
+      // }
 
-      sblas_handle_t hnd;
+      // sblas_handle_t hnd;
       sblas_int_t s_ierr;
 
       // ftrace_region_begin("SBLAS1");
-      if (f == -1) {
+      if (!A->hnd) {
+        fprintf(stderr, "- Memory alloc for handler: A_data %p - %d \n", A_data,
+                A_data);
         s_ierr = sblas_create_matrix_handle_from_csr_rd(
             mrow, ncol, iaptr, iaind, avals, SBLAS_INDEXING_0, SBLAS_GENERAL,
-            &hnd); // handler
-
-        s_ierr = sblas_analyze_mv_rd(SBLAS_TRANSPOSE, hnd);
-      } else {
-        // fprintf(stderr, "similarity @%d\n", f);
-        hnd = sblas_ptr[f];
+            &A->hnd); // handler
+        if (s_ierr == SBLAS_OK)
+          free(A_data);
+        s_ierr = sblas_analyze_mv_rd(SBLAS_TRANSPOSE, A->hnd);
       }
+      // else {
+      //   // fprintf(stderr, "similarity @%d\n", f);
+      //   hnd = sblas_ptr[f];
+      // }
 
-      s_ierr =
-          sblas_execute_mv_rd(SBLAS_TRANSPOSE, hnd, 1.0, x_data, mult, y_data);
+      s_ierr = sblas_execute_mv_rd(SBLAS_TRANSPOSE, A->hnd, 1.0, x_data, mult,
+                                   y_data);
 
       // s_ierr = sblas_destroy_matrix_handle(hnd);
-      if (f == -1) {
-        sblas_duplicate_handle(hnd, &sblas_ptr[INC_HND]);
-        ierr = sblas_destroy_matrix_handle(hnd);
-        // sprintf(&avals_ptr[INC_HND * 32], "%p", A_data);
-        strncpy(&avals_ptr[INC_HND * 32], tmp, 32);
-        // avals_ptr[INC_HND] = (HYPRE_BigInt)A_data;
-        //   fprintf(
-        //       stderr,
-        //       "- Memory alloc for handler: A_data %s - %d \tNNZ %d \t INC
-        //       %d\n", tmp, A_data, l_nnz, INC_HND);
+      // if (f == -1) {
+      //   sblas_duplicate_handle(hnd, &sblas_ptr[INC_HND]);
+      //   ierr = sblas_destroy_matrix_handle(hnd);
+      //   // sprintf(&avals_ptr[INC_HND * 32], "%p", A_data);
+      //   strncpy(&avals_ptr[INC_HND * 32], tmp, 32);
+      //   // avals_ptr[INC_HND] = (HYPRE_BigInt)A_data;
+      //   //   fprintf(
+      //   //       stderr,
+      //   //       "- Memory alloc for handler: A_data %s - %d \tNNZ %d \t INC
+      //   //       %d\n", tmp, A_data, l_nnz, INC_HND);
 
-        INC_HND++;
-      }
+      //   INC_HND++;
+      // }
 #endif
     } else {
       /* multiple vector case is not threaded */
@@ -674,7 +689,7 @@ HYPRE_Int hypre_CSRMatrixMatvecTHost(HYPRE_Complex alpha, hypre_CSRMatrix *A,
         }
       }
     }
-#ifndef HYPRE_VE
+#ifndef __ve__
     hypre_TFree(y_data_expand, HYPRE_MEMORY_HOST);
 #endif
   } else {

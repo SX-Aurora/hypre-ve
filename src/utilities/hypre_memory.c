@@ -197,7 +197,7 @@ static inline void *hypre_MAlloc_core(size_t size, HYPRE_Int zeroinit,
 
   void *ptr = NULL;
 
-#ifndef __ve__
+#ifndef __xve__
   switch (location) {
   case hypre_MEMORY_HOST:
     ptr = hypre_HostMalloc(size, zeroinit);
@@ -222,12 +222,11 @@ static inline void *hypre_MAlloc_core(size_t size, HYPRE_Int zeroinit,
   // printf("allocate memory %zu\n", size);
   if(ptr && zeroinit){
     memset(ptr, 0, size);
-    
   }
 #endif
 
   if (!ptr) {
-    fprintf(stderr, "could allocate data of size %zu\n", size);
+    // fprintf(stderr, "could allocate data of size %zu\n", size);
     hypre_OutOfMemory(size);
     hypre_MPI_Abort(hypre_MPI_COMM_WORLD, -1);
   }

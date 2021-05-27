@@ -35,7 +35,9 @@ extern "C" {
 
 #ifndef hypre_CSR_MATRIX_HEADER
 #define hypre_CSR_MATRIX_HEADER
-
+#ifdef __ve__
+#include <sblas.h>
+#endif
 /*--------------------------------------------------------------------------
  * CSR Matrix
  *--------------------------------------------------------------------------*/
@@ -62,6 +64,10 @@ typedef struct
 
    /* memory location of arrays i, j, data */
    HYPRE_MemoryLocation      memory_location;
+
+#ifdef __ve__
+   sblas_handle_t hnd;
+#endif
 
 } hypre_CSRMatrix;
 
