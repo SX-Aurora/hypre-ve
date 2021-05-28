@@ -495,13 +495,12 @@ HYPRE_Int hypre_SeqVectorAxpy(HYPRE_Complex alpha, hypre_Vector *x,
 #endif
 
 #else
-int i;
+  int i;
 #pragma omp parallel for private(i) HYPRE_SMP_SCHEDULE
   for (i = 0; i < size; i++) {
     y_data[i] += alpha * x_data[i];
   }
 #endif
-
 
   return ierr;
 }
@@ -559,10 +558,41 @@ HYPRE_Real hypre_SeqVectorInnerProd(hypre_Vector *x, hypre_Vector *y) {
 #else
 #ifndef HYPRE_COMPLEX
   HYPRE_Int i;
-#pragma omp parallel for private(i) reduction(+ : result)
-  for (i = 0; i < size; i++) {
+
+#if 0
+// #pragma omp parallel for private(i) reduction(+ : result) schedule(static,chunk) 
+  for (i = 0; i < size; i++)
     result += y_data[i] * x_data[i];
+
+#else
+
+  // double t_result[num_threads];
+#pragma omp parallel shared(result)
+  {
+    HYPRE_Int num_threads = omp_get_num_threads(); // hypre_NumActiveThreads();
+    HYPRE_Int thread_id = omp_get_thread_num(); // hypre_GetThreadNum();
+
+    HYPRE_Int chunk = (size + num_threads - 1) / num_threads;
+    HYPRE_Int strt = chunk * thread_id;
+    HYPRE_Int end = size < (strt + chunk) ? size : (strt + chunk);
+
+    // fprintf(stderr, "Id: %d\tstrt: %d\tend: %d\tchunk: %d\n", thread_id, strt,
+    //         end, chunk);
+    // t_result[thread_id] = 0;
+    double t_result = 0;
+    for (i = strt; i < end; i++)
+      t_result += y_data[i] * x_data[i];
+
+#pragma omp atomic
+    result += t_result;
   }
+
+  // exit(0);
+  // for (i = 0; i < num_threads; i++)
+  //   result += t_result[i];
+
+#endif
+
 #else
   /* TODO */
 #error "Complex inner product"
@@ -584,9 +614,10 @@ HYPRE_Complex hypre_SeqVectorSumElts(hypre_Vector *vector) {
   HYPRE_Complex *data = hypre_VectorData(vector);
   HYPRE_Int size = hypre_VectorSize(vector);
   HYPRE_Int i;
-
+#ifndef __ve__
 #ifdef HYPRE_USING_OPENMP
 #pragma omp parallel for private(i) reduction(+ : sum) HYPRE_SMP_SCHEDULE
+#endif
 #endif
   for (i = 0; i < size; ++i)
     sum += data[i];
