@@ -212,20 +212,6 @@ hypre_BoomerAMGSetup( void               *amg_vdata,
    HYPRE_Real      wall_time;   /* for debugging instrumentation */
    HYPRE_Int       add_end;
 
-#ifdef HYPRE_VE
-  extern char *avals_ptr;
-  extern sblas_handle_t *sblas_ptr;
-  INC_HND = 0;
-
-  if (avals_ptr == NULL) {
-    avals_ptr = hypre_TAlloc(char, NN * 32, HYPRE_MEMORY_HOST);
-    sblas_ptr = hypre_TAlloc(sblas_handle_t, NN, HYPRE_MEMORY_HOST);
-    fprintf(stderr, "PCG array of pointers has been allocated\n");
-  }
-#endif
-
-
-
 #ifdef HYPRE_USING_DSUPERLU
    HYPRE_Int       dslu_threshold = hypre_ParAMGDataDSLUThreshold(amg_data);
 #endif

@@ -52,15 +52,6 @@ HYPRE_Int hypre_CSRMatrixMatvecOutOfPlaceHost(
   HYPRE_Real xpar = 0.7;
   hypre_Vector *x_tmp = NULL;
 
-  // #ifdef __ve__
-  //   extern int INC_HND;
-
-  //   // extern HYPRE_Complex **avals_ptr;
-  //   // extern HYPRE_BigInt *avals_ptr;
-  //   extern char *avals_ptr;
-  //   extern sblas_handle_t *sblas_ptr;
-  // #endif
-
   /*---------------------------------------------------------------------
    *  Check for size compatibility.  Matvec returns ierr = 1 if
    *  length of X doesn't equal the number of columns of A,
@@ -369,19 +360,20 @@ HYPRE_Int hypre_CSRMatrixMatvecOutOfPlaceHost(
 #endif
 
     if (!A->hnd) {
-      HYPRE_Complex *A_data = hypre_CSRMatrixData(A);
-      
+      // HYPRE_Complex *A_data = hypre_CSRMatrixData(A);
+
       sblas_int_t *iaptr = A_i;
       sblas_int_t *iaind = A_j;
       double *avals = A_data;
 
-      fprintf(stderr, "* Memory alloc for handler: A_data %p - %d \n", A_data,
-              A_data);
+      // fprintf(stderr, "* Memory alloc for handler: A_data %p - %d \n",
+      // A_data,
+      //         A_data);
       ierr = sblas_create_matrix_handle_from_csr_rd(
           mrow, ncol, iaptr, iaind, avals, SBLAS_INDEXING_0, SBLAS_GENERAL,
           &A->hnd); // handler
-      if (ierr == SBLAS_OK)
-        free(A_data);
+      // if (ierr == SBLAS_OK)
+      //   free(A->data);
       // ftrace_region_begin("sblas_analyze_mv_rd");
       ierr = sblas_analyze_mv_rd(SBLAS_NON_TRANSPOSE, A->hnd);
       // ftrace_region_end("sblas_analyze_mv_rd");
@@ -619,13 +611,6 @@ HYPRE_Int hypre_CSRMatrixMatvecTHost(HYPRE_Complex alpha, hypre_CSRMatrix *A,
       } /* end parallel threaded region */
 #else
       // fprintf(stderr, "From THost \n");
-      sblas_int_t mrow = (sblas_int_t)num_rows;
-      sblas_int_t ncol = (sblas_int_t)num_cols;
-      // HYPRE_Int l_nnz = A_i[num_rows] - A_i[0];
-
-      sblas_int_t *iaptr = A_i;
-      sblas_int_t *iaind = A_j;
-      double *avals = A_data;
 
       // HYPRE_Int f = -1;
       // HYPRE_BigInt tmp_add = (HYPRE_BigInt) A_data;
@@ -645,13 +630,22 @@ HYPRE_Int hypre_CSRMatrixMatvecTHost(HYPRE_Complex alpha, hypre_CSRMatrix *A,
 
       // ftrace_region_begin("SBLAS1");
       if (!A->hnd) {
-        fprintf(stderr, "- Memory alloc for handler: A_data %p - %d \n", A_data,
-                A_data);
+        sblas_int_t mrow = (sblas_int_t)num_rows;
+        sblas_int_t ncol = (sblas_int_t)num_cols;
+        // HYPRE_Int l_nnz = A_i[num_rows] - A_i[0];
+
+        sblas_int_t *iaptr = A_i;
+        sblas_int_t *iaind = A_j;
+        double *avals = A_data;
+
+        // fprintf(stderr, "- Memory alloc for handler: A_data %p - %d \n",
+        // A_data,
+        //         A_data);
         s_ierr = sblas_create_matrix_handle_from_csr_rd(
             mrow, ncol, iaptr, iaind, avals, SBLAS_INDEXING_0, SBLAS_GENERAL,
             &A->hnd); // handler
-        if (s_ierr == SBLAS_OK)
-          free(A_data);
+        // if (s_ierr == SBLAS_OK)
+        //   free(A_data);
         s_ierr = sblas_analyze_mv_rd(SBLAS_TRANSPOSE, A->hnd);
       }
       // else {

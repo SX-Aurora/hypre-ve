@@ -559,7 +559,7 @@ HYPRE_Real hypre_SeqVectorInnerProd(hypre_Vector *x, hypre_Vector *y) {
 #else
 #ifndef HYPRE_COMPLEX
   HYPRE_Int i;
-#pragma omp parallel for private(i) reduction(+ : result) if(size > 2048)
+#pragma omp parallel for private(i) reduction(+ : result)
   for (i = 0; i < size; i++) {
     result += y_data[i] * x_data[i];
   }

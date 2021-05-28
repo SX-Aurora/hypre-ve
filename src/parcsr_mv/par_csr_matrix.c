@@ -715,7 +715,7 @@ hypre_ParCSRMatrixPrintIJ( const hypre_ParCSRMatrix *matrix,
    HYPRE_Int        *offd_i;
    HYPRE_Int        *offd_j;
    HYPRE_Int         myid, num_procs, i, j;
-   HYPRE_BigInt      I, J;
+   HYPRE_BigInt      II, JJ;
    char              new_filename[255];
    FILE             *file;
    HYPRE_Int         num_nonzeros_offd;
@@ -773,23 +773,23 @@ hypre_ParCSRMatrixPrintIJ( const hypre_ParCSRMatrix *matrix,
 
    for (i = 0; i < num_rows; i++)
    {
-      I = first_row_index + (HYPRE_BigInt)(i + base_i);
+      II = first_row_index + (HYPRE_BigInt)(i + base_i);
 
       /* print diag columns */
       for (j = diag_i[i]; j < diag_i[i+1]; j++)
       {
-         J = first_col_diag + (HYPRE_BigInt)(diag_j[j] + base_j);
+         JJ = first_col_diag + (HYPRE_BigInt)(diag_j[j] + base_j);
          if ( diag_data )
          {
 #ifdef HYPRE_COMPLEX
-            hypre_fprintf(file, "%b %b %.14e , %.14e\n", I, J,
+            hypre_fprintf(file, "%b %b %.14e , %.14e\n", II, JJ,
                           hypre_creal(diag_data[j]), hypre_cimag(diag_data[j]));
 #else
-            hypre_fprintf(file, "%b %b %.14e\n", I, J, diag_data[j]);
+            hypre_fprintf(file, "%b %b %.14e\n", II, JJ, diag_data[j]);
 #endif
          }
          else
-            hypre_fprintf(file, "%b %b\n", I, J);
+            hypre_fprintf(file, "%b %b\n", II, JJ);
       }
 
       /* print offd columns */
@@ -797,18 +797,18 @@ hypre_ParCSRMatrixPrintIJ( const hypre_ParCSRMatrix *matrix,
       {
          for (j = offd_i[i]; j < offd_i[i+1]; j++)
          {
-            J = col_map_offd[offd_j[j]] + (HYPRE_BigInt)base_j;
+            JJ = col_map_offd[offd_j[j]] + (HYPRE_BigInt)base_j;
             if ( offd_data )
             {
 #ifdef HYPRE_COMPLEX
-               hypre_fprintf(file, "%b %b %.14e , %.14e\n", I, J,
+               hypre_fprintf(file, "%b %b %.14e , %.14e\n", II, JJ,
                              hypre_creal(offd_data[j]), hypre_cimag(offd_data[j]));
 #else
-               hypre_fprintf(file, "%b %b %.14e\n", I, J, offd_data[j]);
+               hypre_fprintf(file, "%b %b %.14e\n", II, JJ, offd_data[j]);
 #endif
             }
             else
-               hypre_fprintf(file, "%b %b\n", I, J );
+               hypre_fprintf(file, "%b %b\n", II, JJ );
          }
       }
    }
@@ -851,7 +851,7 @@ hypre_ParCSRMatrixReadIJ( MPI_Comm             comm,
    HYPRE_Int          *offd_j;
    HYPRE_BigInt       *tmp_j;
    HYPRE_BigInt       *aux_offd_j;
-   HYPRE_BigInt        I, J;
+   HYPRE_BigInt        II, JJ;
    HYPRE_Int           myid, num_procs, i, i2, j;
    char                new_filename[255];
    FILE               *file;
@@ -929,23 +929,23 @@ hypre_ParCSRMatrixReadIJ( MPI_Comm             comm,
    for (i = 0; i < num_nonzeros_diag+num_nonzeros_offd; i++)
    {
       /* read values */
-      hypre_fscanf(file, "%b %b %le", &I, &J, &data);
+      hypre_fscanf(file, "%b %b %le", &II, &JJ, &data);
       i2 = (HYPRE_Int)(I-big_base_i-first_row_index);
-      J -= big_base_j;
+      JJ -= big_base_j;
       if (i2 > row_cnt)
       {
          diag_i[i2] = diag_cnt;
          offd_i[i2] = offd_cnt;
          row_cnt++;
       }
-      if (J < first_col_diag || J > last_col_diag)
+      if (JJ < first_col_diag || JJ > last_col_diag)
       {
-         tmp_j[offd_cnt] = J;
+         tmp_j[offd_cnt] = JJ;
          offd_data[offd_cnt++] = data;
       }
       else
       {
-         diag_j[diag_cnt] = (HYPRE_Int)(J - first_col_diag);
+         diag_j[diag_cnt] = (HYPRE_Int)(JJ - first_col_diag);
          diag_data[diag_cnt++] = data;
       }
    }
