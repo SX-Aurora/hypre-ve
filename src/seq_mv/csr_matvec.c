@@ -575,7 +575,11 @@ HYPRE_Int hypre_CSRMatrixMatvecTHost(HYPRE_Complex alpha, hypre_CSRMatrix *A,
    * y += A^T*x
    *-----------------------------------------------------------------*/
   num_threads = hypre_NumThreads();
+#ifdef __ve__
+  if (num_threads >= 1) {
+#else
   if (num_threads > 1) {
+#endif
 #ifndef __ve__
     y_data_expand =
         hypre_CTAlloc(HYPRE_Complex, num_threads * y_size, HYPRE_MEMORY_HOST);
