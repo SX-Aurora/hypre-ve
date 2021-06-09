@@ -13,7 +13,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
-#include <sblas.h>
 #include "_hypre_utilities.h"
 
 #define hypre_CTAllocF(type, count, funcs, location) \
@@ -390,14 +389,6 @@ extern "C" {
    * Description...
    **/
   /*@{*/
-int INC_HND;
-
-#define NN 100
-#define S_ADD 32;
-// HYPRE_Complex **avals_ptr;
-// HYPRE_BigInt *avals_ptr;
-char *avals_ptr;
-sblas_handle_t *sblas_ptr;
   /**
    * The {\tt hypre\_GMRESFunctions} object ...
    **/

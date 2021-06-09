@@ -11,20 +11,10 @@
 #define CUMNUMIT
 
 #include "par_csr_block_matrix.h"
-#include <sblas.h>
 /*--------------------------------------------------------------------------
  * hypre_ParAMGData
  *--------------------------------------------------------------------------*/
-int INC_HND;
 
-#define NN 100
-#define S_ADD 32;
-// HYPRE_Complex **avals_ptr;
-// HYPRE_BigInt *avals_ptr;
-char *avals_ptr;
-sblas_handle_t *sblas_ptr;
-
-  
 typedef struct
 {
    HYPRE_MemoryLocation  memory_location;   /* memory location of matrices/vectors in AMGData */
