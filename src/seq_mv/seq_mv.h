@@ -67,6 +67,8 @@ typedef struct
 
 #ifdef __ve__
    sblas_handle_t hnd;
+   int* level;
+   int* Ulevel;
 #endif
 
 } hypre_CSRMatrix;

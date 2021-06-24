@@ -45,7 +45,10 @@ typedef struct
    /* memory location of arrays i, j, data */
    HYPRE_MemoryLocation      memory_location;
 #ifdef __ve__
+   int flag=0;
    sblas_handle_t hnd;
+   int *level;
+   int *Ulevel;
 #endif
 
 } hypre_CSRMatrix;

@@ -348,6 +348,7 @@ HYPRE_Int hypre_CSRMatrixMatvecOutOfPlaceHost(
           &A->hnd); // handler
 
       ierr = sblas_analyze_mv_rd(SBLAS_NON_TRANSPOSE, A->hnd);
+      fprintf(stderr, "create !!\n");
     }
 
 
@@ -450,11 +451,6 @@ HYPRE_Int hypre_CSRMatrixMatvecTHost(HYPRE_Complex alpha, hypre_CSRMatrix *A,
   HYPRE_Int ierr = 0;
 
   hypre_Vector *x_tmp = NULL;
-
-  // #ifdef __ve__
-  //   extern char *avals_ptr;
-  //   extern sblas_handle_t *sblas_ptr;
-  // #endif
 
   /*---------------------------------------------------------------------
    *  Check for size compatibility.  MatvecT returns ierr = 1 if
@@ -579,6 +575,8 @@ HYPRE_Int hypre_CSRMatrixMatvecTHost(HYPRE_Complex alpha, hypre_CSRMatrix *A,
             &A->hnd); // handler
 
         s_ierr = sblas_analyze_mv_rd(SBLAS_TRANSPOSE, A->hnd);
+
+        fprintf(stderr, "create !!\n");
       }
 
 
