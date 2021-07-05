@@ -355,9 +355,12 @@ HYPRE_Int hypre_BoomerAMGCycle(void *amg_vdata, hypre_ParVector **F_array,
           /*-----------------------------------------------
            Choose Smoother
            -----------------------------------------------*/
+          //  printf("smoother type:  %d level: %d\n", smooth_type, level);
+
           if (smooth_num_levels > level &&
               (smooth_type == 7 || smooth_type == 8 || smooth_type == 9 ||
                smooth_type == 19 || smooth_type == 17 || smooth_type == 18)) {
+                 
             hypre_VectorSize(hypre_ParVectorLocalVector(Utemp)) = local_size;
             alpha = -1.0;
             beta = 1.0;
@@ -384,6 +387,7 @@ HYPRE_Int hypre_BoomerAMGCycle(void *amg_vdata, hypre_ParVector **F_array,
                            (HYPRE_ParVector)Aux_F, (HYPRE_ParVector)Aux_U);
           } else if (smooth_num_levels > level &&
                      (smooth_type == 6 || smooth_type == 16)) {
+                      //  printf("smoother type:  %d level: %d\n", smooth_type, level);
             HYPRE_SchwarzSolve(smoother[level],
                                (HYPRE_ParCSRMatrix)A_array[level],
                                (HYPRE_ParVector)Aux_F, (HYPRE_ParVector)Aux_U);
@@ -471,6 +475,7 @@ HYPRE_Int hypre_BoomerAMGCycle(void *amg_vdata, hypre_ParVector **F_array,
                 Vtemp, Ztemp);
           } else {
             /* smoother than can have CF ordering */
+            
             if (block_mode) {
               Solve_err_flag = hypre_BoomerAMGBlockRelaxIF(
                   A_block_array[level], Aux_F, CF_marker_array[level],

@@ -194,8 +194,11 @@ hypre_SchwarzSolve(void               *schwarz_vdata,
 
    HYPRE_Int *pivots = hypre_SchwarzDataPivots(schwarz_data);
 
+   printf("schwarz variant: %d\n",variant );
+   
    if (domain_structure)
    {
+      
     if (variant == 2)
     {
       hypre_ParAdSchwarzSolve(A, f, domain_structure, scale, u, Vtemp, pivots, use_nonsymm);
