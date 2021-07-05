@@ -445,49 +445,41 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
       s_ierr = sblas_analyze_mv_rd(SBLAS_TRANSPOSE, A_offd->hnd);
       // multi-level scheduling
       A_diag->level = (int *)malloc(sizeof(int) * n);
-
-#ifdef HYPRE_USING_OPENMP
-#pragma omp parallel for private(i, ii, j, jj, ns, ne, res, rest, size)        \
-    HYPRE_SMP_SCHEDULE
-#endif
-      for (j = 0; j < num_threads; j++) {
-        size = n / num_threads;
-        rest = n - size * num_threads;
-        if (j < rest) {
-          ns = j * size + j;
-          ne = (j + 1) * size + j + 1;
-        } else {
-          ns = j * size + rest;
-          ne = (j + 1) * size + rest;
-        }
-        for (i = ns; i < ne; i++)
-          A_diag->level[i] = -1;
+      if (relax_points == 0) {
+        for (i = 0; i < n; i++)
+          A_diag->level[i] = -1; // initialization
         int m;
-        for (i = ns; i < ne; i++) {
+
+        for (i = 0; i < n; i++) {
           m = -1;
+          if (A_diag_data[A_diag_i[i]] != zero) {
 #pragma _NEC novector
-          for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
-            ii = A_diag_j[jj];
-            if (ii < i && m < A_diag->level[ii])
-              m = A_diag->level[ii];
+            for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
+              ii = A_diag_j[jj];
+              if (ii < i && m < A_diag->level[ii])
+                m = A_diag->level[ii];
+            }
+            A_diag->level[i] = m + 1;
           }
-          A_diag->level[i] = m + 1;
+        }
+      } else {
+        for (i = 0; i < n; i++)
+          A_diag->level[i] = -1; // initialization
+        int m;
+        for (i = 0; i < n; i++) {
+          m = -1;
+          if (cf_marker[i] == relax_points &&
+              A_diag_data[A_diag_i[i]] != zero) {
+#pragma _NEC novector
+            for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
+              ii = A_diag_j[jj];
+              if (ii < i && m < A_diag->level[ii])
+                m = A_diag->level[ii];
+            }
+            A_diag->level[i] = m + 1;
+          }
         }
       }
-
-//       for (i = 0; i < n; i++)
-//         A_diag->level[i] = -1; // initialization
-//       int m;
-//       for (i = 0; i < n; i++) {
-//         m = -1;
-// #pragma _NEC novector
-//         for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
-//           ii = A_diag_j[jj];
-//           if (ii < i && m < A_diag->level[ii])
-//             m = A_diag->level[ii];
-//         }
-//         A_diag->level[i] = m + 1;
-//       }
       // debuging
       m = m + 1;
       // int* freq= (int *) malloc(sizeof(int)*m);
@@ -499,10 +491,10 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
       // fprintf(stderr, "Data: %p %p %p \t %d %d %d\n", &A_diag_data,
       // &A_diag_i,
       //         &A_diag_j, mrow, ncol, sizeof(A_offd_data) / sizeof(double));
-      for (i = 0; i < m; i++) {
-        fprintf(stderr, "%d, ", freq[i]);
-      }
-      fprintf(stderr, "\n");
+      // for (i = 0; i < m; i++) {
+      //    fprintf(stderr, "%d, ", freq[i]);
+      // }
+      // fprintf(stderr, "\n");
 
       // free(freq);
     }
@@ -521,11 +513,12 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
 #ifdef HYPRE_PROFILE
     hypre_profile_times[HYPRE_TIMER_ID_RELAX] -= hypre_MPI_Wtime();
 #endif
-
+    fprintf(stderr, "relax_weight %d \t omega %d \t relax_points %d\n",
+            relax_weight, omega, relax_points);
     if (relax_weight == 1 && omega == 1) {
       if (relax_points == 0) {
         // Essam: testing
-        if (num_threads > 1) {
+        if (num_threads > 8) {
           tmp_data = Ztemp_data;
 #ifdef HYPRE_USING_OPENMP
 #pragma omp parallel for private(i) HYPRE_SMP_SCHEDULE
@@ -669,6 +662,7 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
         }
       }
     } else {
+      // Essam; target for the 1st benchmark amg 0
 #ifdef HYPRE_USING_OPENMP
 #pragma omp parallel for private(i) HYPRE_SMP_SCHEDULE
 #endif
