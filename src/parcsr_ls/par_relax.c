@@ -427,11 +427,12 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
 
     sblas_int_t s_ierr;
     HYPRE_Real A_offd_res[global_num_rows];
-
+    // fprintf(stderr, "Data: %d\n", n);
     if (!A_offd->hnd) {
-      // A_offd->flag=1; 
+      // A_offd->flag=1;
       sblas_int_t mrow = (sblas_int_t)n;
-      sblas_int_t ncol = (sblas_int_t)num_cols_offd; // always passed as zero ..!
+      sblas_int_t ncol =
+          (sblas_int_t)num_cols_offd; // always passed as zero ..!
 
       sblas_int_t *iaptr = A_offd_i;
       sblas_int_t *iaind = A_offd_j;
@@ -442,35 +443,66 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
           &A_offd->hnd); // handler
 
       s_ierr = sblas_analyze_mv_rd(SBLAS_TRANSPOSE, A_offd->hnd);
-// multi-level scheduling 
+      // multi-level scheduling
       A_diag->level = (int *)malloc(sizeof(int) * n);
 
-      for (i = 0; i < n; i++)
-        A_diag->level[i] = -1; // initialization
-      int m;
-      for (i = 0; i < n; i++) {
-        m = -1;
-#pragma _NEC novector
-        for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
-          ii = A_diag_j[jj];
-          if (ii < i && m < A_diag->level[ii])
-            m = A_diag->level[ii];
+#ifdef HYPRE_USING_OPENMP
+#pragma omp parallel for private(i, ii, j, jj, ns, ne, res, rest, size)        \
+    HYPRE_SMP_SCHEDULE
+#endif
+      for (j = 0; j < num_threads; j++) {
+        size = n / num_threads;
+        rest = n - size * num_threads;
+        if (j < rest) {
+          ns = j * size + j;
+          ne = (j + 1) * size + j + 1;
+        } else {
+          ns = j * size + rest;
+          ne = (j + 1) * size + rest;
         }
-        A_diag->level[i] = m + 1;
+        for (i = ns; i < ne; i++)
+          A_diag->level[i] = -1;
+        int m;
+        for (i = ns; i < ne; i++) {
+          m = -1;
+#pragma _NEC novector
+          for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
+            ii = A_diag_j[jj];
+            if (ii < i && m < A_diag->level[ii])
+              m = A_diag->level[ii];
+          }
+          A_diag->level[i] = m + 1;
+        }
       }
+
+//       for (i = 0; i < n; i++)
+//         A_diag->level[i] = -1; // initialization
+//       int m;
+//       for (i = 0; i < n; i++) {
+//         m = -1;
+// #pragma _NEC novector
+//         for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
+//           ii = A_diag_j[jj];
+//           if (ii < i && m < A_diag->level[ii])
+//             m = A_diag->level[ii];
+//         }
+//         A_diag->level[i] = m + 1;
+//       }
       // debuging
-      m=m+1;
+      m = m + 1;
       // int* freq= (int *) malloc(sizeof(int)*m);
       int freq[m];
-      memset(freq, 0, sizeof(int)*m);
+      memset(freq, 0, sizeof(int) * m);
       for (i = 0; i < n; i++)
-      freq[A_diag->level[i]]++; 
+        freq[A_diag->level[i]]++;
 
-      fprintf(stderr, "Data: %p %p %p \t %d %d %d\n", &A_diag_data, &A_diag_i, &A_diag_j, mrow, ncol, sizeof(A_offd_data)/sizeof(double));
-      // for (i = 0; i < m; i++) {
-      //    fprintf(stderr, "%d, ", freq[i]);
-      // }
-      // fprintf(stderr, "\n");
+      // fprintf(stderr, "Data: %p %p %p \t %d %d %d\n", &A_diag_data,
+      // &A_diag_i,
+      //         &A_diag_j, mrow, ncol, sizeof(A_offd_data) / sizeof(double));
+      for (i = 0; i < m; i++) {
+        fprintf(stderr, "%d, ", freq[i]);
+      }
+      fprintf(stderr, "\n");
 
       // free(freq);
     }
