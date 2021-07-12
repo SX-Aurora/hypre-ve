@@ -15,6 +15,8 @@
 #include "Common.h"
 #include "_hypre_lapack.h"
 #include "_hypre_parcsr_ls.h"
+#include <ftrace.h>
+#include <sblas.h>
 
 /*--------------------------------------------------------------------------
  * hypre_BoomerAMGRelax
@@ -443,16 +445,25 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
           &A_offd->hnd); // handler
 
       s_ierr = sblas_analyze_mv_rd(SBLAS_TRANSPOSE, A_offd->hnd);
-      // multi-level scheduling
-      A_diag->level = (int *)malloc(sizeof(int) * n);
+// multi-level scheduling
+#if 1
+      A_diag->n_act_rows[0] = 0;
+      A_diag->n_act_rows[1] = 0;
+
+      int m;
+
+      // Essam: relaxation points can't be used in checking
+      //        according to the algirthm it can be -1/1 or 0 ?!!
       if (relax_points == 0) {
+        A_diag->act_rows = (int *)malloc(sizeof(int) * n);
+        A_diag->level = (int *)malloc(sizeof(int) * n);
         for (i = 0; i < n; i++)
-          A_diag->level[i] = -1; // initialization
-        int m;
+          A_diag->level[i] = -1;
 
         for (i = 0; i < n; i++) {
           m = -1;
           if (A_diag_data[A_diag_i[i]] != zero) {
+            A_diag->act_rows[A_diag->n_act_rows[0]++] = i;
 #pragma _NEC novector
             for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
               ii = A_diag_j[jj];
@@ -463,13 +474,15 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
           }
         }
       } else {
-        for (i = 0; i < n; i++)
-          A_diag->level[i] = -1; // initialization
-        int m;
+        A_diag->act_rows = (int *)malloc(sizeof(int) * 2 * n);
+        A_diag->level = (int *)malloc(sizeof(int) * 2 * n);
+        for (i = 0; i < 2 * n; i++)
+          A_diag->level[i] = -1;
+
         for (i = 0; i < n; i++) {
           m = -1;
-          if (cf_marker[i] == relax_points &&
-              A_diag_data[A_diag_i[i]] != zero) {
+          if (cf_marker[i] == -1 && A_diag_data[A_diag_i[i]] != zero) {
+            A_diag->act_rows[A_diag->n_act_rows[0]++] = i;
 #pragma _NEC novector
             for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
               ii = A_diag_j[jj];
@@ -479,24 +492,47 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
             A_diag->level[i] = m + 1;
           }
         }
+
+        //
+
+        for (i = 0; i < n; i++) {
+          m = -1;
+          if (cf_marker[i] == 1 && A_diag_data[A_diag_i[i]] != zero) {
+            A_diag->act_rows[n + A_diag->n_act_rows[1]++] = i;
+#pragma _NEC novector
+            for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
+              ii = A_diag_j[jj];
+              if (ii < i && m < A_diag->level[n + ii])
+                m = A_diag->level[n + ii];
+            }
+            A_diag->level[n + i] = m + 1;
+          }
+        }
       }
-      // debuging
+
+      // building index list
       m = m + 1;
       // int* freq= (int *) malloc(sizeof(int)*m);
       int freq[m];
       memset(freq, 0, sizeof(int) * m);
-      for (i = 0; i < n; i++)
-        freq[A_diag->level[i]]++;
+      for (i = 0; i < n; i++) {
+        if (A_diag->level[i] != -1) {
+          freq[A_diag->level[i]]++;
+        }
+      }
 
+      // fprintf(stderr, "The number of rows: %d\t #levels: %d\n", n, tmp_cnt);
       // fprintf(stderr, "Data: %p %p %p \t %d %d %d\n", &A_diag_data,
       // &A_diag_i,
-      //         &A_diag_j, mrow, ncol, sizeof(A_offd_data) / sizeof(double));
+      //         &A_diag_j, mrow, ncol, sizeof(A_offd_data) /
+      //         sizeof(double));
       // for (i = 0; i < m; i++) {
       //    fprintf(stderr, "%d, ", freq[i]);
       // }
       // fprintf(stderr, "\n");
 
       // free(freq);
+#endif
     }
 #ifdef HYPRE_USING_OPENMP
 #pragma omp parallel for private(i)
@@ -513,8 +549,8 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
 #ifdef HYPRE_PROFILE
     hypre_profile_times[HYPRE_TIMER_ID_RELAX] -= hypre_MPI_Wtime();
 #endif
-    fprintf(stderr, "relax_weight %d \t omega %d \t relax_points %d\n",
-            relax_weight, omega, relax_points);
+    // fprintf(stderr, "relax_weight %d \t omega %d \t relax_points %d\n",
+    //         relax_weight, omega, relax_points);
     if (relax_weight == 1 && omega == 1) {
       if (relax_points == 0) {
         // Essam: testing
@@ -590,6 +626,10 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
        * Relax only C or F points as determined by relax_points.
        *-----------------------------------------------------------------*/
       else {
+// Essam: target AMG 0
+#ifdef _FTRACE
+        ftrace_region_begin("RELAX_CF_POINT_0");
+#endif
         if (num_threads > 1) {
           tmp_data = Ztemp_data;
 #ifdef HYPRE_USING_OPENMP
@@ -597,43 +637,58 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
 #endif
           for (i = 0; i < n; i++)
             tmp_data[i] = u_data[i];
+          // Essam: control which part of the level scheduling is controled
+
+          HYPRE_Int jmp = 1, t_id;
+          if (relax_points == -1)
+            jmp = 0;
+
 #ifdef HYPRE_USING_OPENMP
-#pragma omp parallel for private(i, ii, j, jj, ns, ne, res, rest, size)        \
-    HYPRE_SMP_SCHEDULE
+#pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size) firstprivate(u_data)
 #endif
-          for (j = 0; j < num_threads; j++) {
-            size = n / num_threads;
-            rest = n - size * num_threads;
-            if (j < rest) {
-              ns = j * size + j;
-              ne = (j + 1) * size + j + 1;
+          {
+            size = A_diag->n_act_rows[jmp] / omp_get_num_threads();
+            rest = A_diag->n_act_rows[jmp] - size * omp_get_num_threads();
+            t_id = omp_get_thread_num();
+
+            if (t_id < rest) {
+              ns = t_id * size + t_id;
+              ne = (t_id + 1) * size + t_id + 1;
             } else {
-              ns = j * size + rest;
-              ne = (j + 1) * size + rest;
+              ns = t_id * size + rest;
+              ne = (t_id + 1) * size + rest;
             }
-            for (i = ns; i < ne; i++) /* relax interior points */
+            // Essam: add temp array - to allow indexing list for multilevel
+            // scheduling HYPRE_Real tmp_u_data[n]; for (i = 0; i < n; i++)
+            //   tmp_u_data[i] = u_data[i];
+
+            for (j = ns; j < ne; j++) /* relax interior points */
             {
+              i = A_diag->act_rows[n * jmp + j];
               /*-----------------------------------------------------------
                * If i is of the right type ( C or F ) and diagonal is
                * nonzero, relax point i; otherwise, skip it.
                *-----------------------------------------------------------*/
-              if (cf_marker[i] == relax_points &&
-                  A_diag_data[A_diag_i[i]] != zero) {
-                //  res = f_data[i];
-                for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
-                  ii = A_diag_j[jj];
-                  if (ii >= ns && ii < ne)
-                    A_offd_res[i] -= A_diag_data[jj] * u_data[ii];
-                  else
-                    A_offd_res[i] -= A_diag_data[jj] * tmp_data[ii];
-                }
-                //  for (jj = A_offd_i[i]; jj < A_offd_i[i + 1]; jj++) {
-                //    ii = A_offd_j[jj];
-                //    res -= A_offd_data[jj] * Vext_data[ii];
-                //  }
-                u_data[i] = A_offd_res[i] / A_diag_data[A_diag_i[i]];
+              // if (cf_marker[i] == relax_points &&
+              //     A_diag_data[A_diag_i[i]] != zero) {
+              //  res = f_data[i];
+              for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
+                ii = A_diag_j[jj];
+                // if (ii >= ns && ii < ne)
+                  A_offd_res[i] -= A_diag_data[jj] * u_data[ii];
+                // else
+                //   A_offd_res[i] -= A_diag_data[jj] * tmp_data[ii];
+                // A_offd_res[i] -= A_diag_data[jj] * tmp_data[ii];
               }
+              //  for (jj = A_offd_i[i]; jj < A_offd_i[i + 1]; jj++) {
+              //    ii = A_offd_j[jj];
+              //    res -= A_offd_data[jj] * Vext_data[ii];
+              //  }
+              u_data[i] = A_offd_res[i] / A_diag_data[A_diag_i[i]];
+              // }
             }
+            // for (i = ns; i < ne; i++)
+            //   u_data[i] = tmp_data[i];
           }
         } else {
           for (i = 0; i < n; i++) /* relax interior points */
@@ -660,9 +715,13 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
             // fprintf(stderr, "\n");
           }
         }
+#ifdef _FTRACE
+        ftrace_region_end("RELAX_CF_POINT_0");
+#endif
       }
     } else {
-      // Essam; target for the 1st benchmark amg 0
+      // fprintf(stderr,"AMG RELAX from else\n");
+      // Essam; target for the 1st benchmark amg 62
 #ifdef HYPRE_USING_OPENMP
 #pragma omp parallel for private(i) HYPRE_SMP_SCHEDULE
 #endif
@@ -671,6 +730,9 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
       }
       prod = (1.0 - relax_weight * omega);
       if (relax_points == 0) {
+#ifdef _FTRACE
+        ftrace_region_begin("RELAX_POINT_0");
+#endif
         if (num_threads > 1) {
           tmp_data = Ztemp_data;
 #ifdef HYPRE_USING_OPENMP
@@ -752,12 +814,18 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
             }
           }
         }
+#ifdef _FTRACE
+        ftrace_region_end("RELAX_POINT_0");
+#endif
       }
 
       /*-----------------------------------------------------------------
        * Relax only C or F points as determined by relax_points.
        *-----------------------------------------------------------------*/
       else {
+#ifdef _FTRACE
+        ftrace_region_begin("RELAX_C/F");
+#endif
         if (num_threads > 1) {
           tmp_data = Ztemp_data;
 
@@ -766,6 +834,7 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
 #endif
           for (i = 0; i < n; i++)
             tmp_data[i] = u_data[i];
+
 #ifdef HYPRE_USING_OPENMP
 #pragma omp parallel for private(i, ii, j, jj, ns, ne, res, rest, size)        \
     HYPRE_SMP_SCHEDULE
@@ -850,6 +919,9 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
             }
           }
         }
+#ifdef _FTRACE
+        ftrace_region_end("RELAX_C/F");
+#endif
       }
     }
 #ifndef HYPRE_USING_PERSISTENT_COMM

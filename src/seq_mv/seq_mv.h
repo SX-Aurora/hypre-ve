@@ -69,6 +69,8 @@ typedef struct
    sblas_handle_t hnd;
    int* level;
    int* Ulevel;
+   int *act_rows;
+   int n_act_rows[2];
 #endif
 
 } hypre_CSRMatrix;

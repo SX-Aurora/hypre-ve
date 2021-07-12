@@ -348,7 +348,7 @@ HYPRE_Int hypre_CSRMatrixMatvecOutOfPlaceHost(
           &A->hnd); // handler
 
       ierr = sblas_analyze_mv_rd(SBLAS_NON_TRANSPOSE, A->hnd);
-      fprintf(stderr, "create !!\n");
+      // fprintf(stderr, "create !!\n");
     }
 
 
@@ -576,7 +576,7 @@ HYPRE_Int hypre_CSRMatrixMatvecTHost(HYPRE_Complex alpha, hypre_CSRMatrix *A,
 
         s_ierr = sblas_analyze_mv_rd(SBLAS_TRANSPOSE, A->hnd);
 
-        fprintf(stderr, "create !!\n");
+        // fprintf(stderr, "create !!\n");
       }
 
 
