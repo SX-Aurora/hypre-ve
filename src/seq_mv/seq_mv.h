@@ -71,6 +71,8 @@ typedef struct
    HYPRE_Int* Ulevel;
    HYPRE_Int* act_rows;
    HYPRE_Int n_act_rows[2];
+   HYPRE_Int* f_act_rows;
+
    // HYPRE_Int n_act_rows_1;
 #endif
 

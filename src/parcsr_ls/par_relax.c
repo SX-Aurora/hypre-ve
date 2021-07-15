@@ -465,14 +465,62 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
 
       if (relax_points == 0) {
         A_diag->act_rows = (int *)malloc(sizeof(HYPRE_Int) * n);
+        A_diag->f_act_rows = (int *)malloc(sizeof(HYPRE_Int) * n);
         A_diag->level = (int *)malloc(sizeof(HYPRE_Int) * n);
         for (i = 0; i < n; i++)
           A_diag->level[i] = -1;
 
-          // n_act_rows_ref = 0;
+// n_act_rows_ref = 0;
+#if 0
 #ifdef HYPRE_USING_OPENMP
 #pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size, inc, \
-                             t_cnt_s) firstprivate(A_diag->level)
+                             t_cnt_s)
+#endif
+                  {
+            inc = 0;
+            size = n / omp_get_num_threads();
+            rest = n - size * omp_get_num_threads();
+            t_id = omp_get_thread_num();
+
+            if (t_id < rest) {
+              ns = t_id * size + t_id;
+              ne = (t_id + 1) * size + t_id + 1;
+            } else {
+              ns = t_id * size + rest;
+              ne = (t_id + 1) * size + rest;
+            }
+
+            t_cnt[t_id] = 0;
+            for (i = ns; i < ne; i++)
+              if (A_diag_data[A_diag_i[i]] != zero)
+                t_cnt[t_id]++;
+
+#pragma omp atomic
+            A_diag->n_act_rows[0] += t_cnt[t_id];
+
+#pragma omp barrier
+            t_cnt_s = 0;
+            for (i = 0; i < t_id; i++)
+              t_cnt_s += t_cnt[i];
+
+            for (i = ns; i < ne; i++) {
+              m = -1;
+              if (A_diag_data[A_diag_i[i]] != zero) {
+                A_diag->act_rows[t_cnt_s + inc++] = i;
+#pragma _NEC novector
+                for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
+                  ii = A_diag_j[jj];
+                  if (ii < i && m < A_diag->level[ii])
+                    m = A_diag->level[ii];
+                }
+                A_diag->level[i] = m + 1;
+              }
+            }
+          }
+#else
+#ifdef HYPRE_USING_OPENMP
+#pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size, inc, \
+                             t_cnt_s)
 #endif
         {
           inc = 0;
@@ -492,7 +540,6 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
           for (i = ns; i < ne; i++)
             if (A_diag_data[A_diag_i[i]] != zero)
               t_cnt[t_id]++;
-
 #pragma omp atomic
           A_diag->n_act_rows[0] += t_cnt[t_id];
 
@@ -501,6 +548,7 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
           for (i = 0; i < t_id; i++)
             t_cnt_s += t_cnt[i];
 
+          // HYPRE_Int *act_flags= &A_diag_i[ns];
           for (i = ns; i < ne; i++) {
             m = -1;
             if (A_diag_data[A_diag_i[i]] != zero) {
@@ -508,13 +556,23 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
 #pragma _NEC novector
               for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
                 ii = A_diag_j[jj];
-                if (ii < i && m < A_diag->level[ii])
-                  m = A_diag->level[ii];
+                if (ii >= ns && ii < ne) {
+                  A_diag->f_act_rows[ii] = 1;
+                  if (ii < i && m < A_diag->level[ii])
+                    m = A_diag->level[ii];
+                } else {
+                  A_diag->f_act_rows[ii] = 0;
+                }
               }
-              A_diag->level[i] = m + 1;
+              if (i != 0)
+                A_diag->level[i] = A_diag->level[i - 1];
+              if (m != -1)
+                A_diag->level[i] = m + 1;
             }
           }
         }
+#endif
+
         // A_diag->n_act_rows[0] = n_act_rows_ref;
       } else {
         A_diag->act_rows = (int *)malloc(sizeof(int) * 2 * n);
@@ -819,12 +877,9 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
           for (i = 0; i < n; i++)
             tmp_data[i] = u_data[i];
 
-          // nn = A_diag->n_act_rows_1;
-
           jmp = 1;
           if (relax_points == -1) {
             jmp = 0;
-            // nn = A_diag->n_act_rows;
           }
 
 #ifdef HYPRE_USING_OPENMP
@@ -851,23 +906,11 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
                * If i is of the right type ( C or F ) and diagonal is
                * nonzero, relax point i; otherwise, skip it.
                *-----------------------------------------------------------*/
-              // if (cf_marker[i] == relax_points &&
-              //     A_diag_data[A_diag_i[i]] != zero) {
-              //  res = f_data[i];
               for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
                 ii = A_diag_j[jj];
-                // if (ii >= ns && ii < ne)
                 A_offd_res[i] -= A_diag_data[jj] * u_data[ii];
-                // else
-                //   A_offd_res[i] -= A_diag_data[jj] * tmp_data[ii];
-                // A_offd_res[i] -= A_diag_data[jj] * tmp_data[ii];
               }
-              //  for (jj = A_offd_i[i]; jj < A_offd_i[i + 1]; jj++) {
-              //    ii = A_offd_j[jj];
-              //    res -= A_offd_data[jj] * Vext_data[ii];
-              //  }
               u_data[i] = A_offd_res[i] / A_diag_data[A_diag_i[i]];
-              // }
             }
           }
         } else {
@@ -877,22 +920,14 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
              * If i is of the right type ( C or F ) and diagonal is
              * nonzero, relax point i; otherwise, skip it.
              *-----------------------------------------------------------*/
-            // fprintf(stderr, "i: %d \t ", i, ii);
             if (cf_marker[i] == relax_points &&
                 A_diag_data[A_diag_i[i]] != zero) {
-              //   res = f_data[i];
               for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
                 ii = A_diag_j[jj];
-                //  fprintf(stderr, "%d, ", ii);
                 A_offd_res[i] -= A_diag_data[jj] * u_data[ii];
               }
-              //   for (jj = A_offd_i[i]; jj < A_offd_i[i + 1]; jj++) {
-              //     ii = A_offd_j[jj];
-              //     res -= A_offd_data[jj] * Vext_data[ii];
-              //   }
               u_data[i] = A_offd_res[i] / A_diag_data[A_diag_i[i]];
             }
-            // fprintf(stderr, "\n");
           }
         }
 #ifdef _FTRACE
@@ -921,18 +956,18 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
           for (i = 0; i < n; i++)
             tmp_data[i] = u_data[i];
 #ifdef HYPRE_USING_OPENMP
-#pragma omp parallel for private(i, ii, j, jj, ns, ne, res, rest, size)        \
-    HYPRE_SMP_SCHEDULE
+#pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size)
 #endif
-          for (j = 0; j < num_threads; j++) {
-            size = n / num_threads;
-            rest = n - size * num_threads;
-            if (j < rest) {
-              ns = j * size + j;
-              ne = (j + 1) * size + j + 1;
+          {
+            size = A_diag->n_act_rows[jmp] / omp_get_num_threads();
+            rest = A_diag->n_act_rows[jmp] - size * omp_get_num_threads();
+            t_id = omp_get_thread_num();
+            if (t_id < rest) {
+              ns = t_id * size + t_id;
+              ne = (t_id + 1) * size + t_id + 1;
             } else {
-              ns = j * size + rest;
-              ne = (j + 1) * size + rest;
+              ns = t_id * size + rest;
+              ne = (t_id + 1) * size + rest;
             }
             for (i = ns; i < ne; i++) /* interior points first */
             {
@@ -945,11 +980,13 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
                 res2 = 0.0;
                 for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
                   ii = A_diag_j[jj];
-                  if (ii >= ns && ii < ne) {
-                    res0 -= A_diag_data[jj] * u_data[ii];
-                    res2 += A_diag_data[jj] * Vtemp_data[ii];
-                  } else
-                    A_offd_res[i] -= A_diag_data[jj] * tmp_data[ii];
+                  // if (ii >= ns && ii < ne) {
+                  res0 -= A_diag->f_act_rows[ii] * A_diag_data[jj] * u_data[ii];
+                  res2 +=
+                      A_diag->f_act_rows[ii] * A_diag_data[jj] * Vtemp_data[ii];
+                  // } else
+                  A_offd_res[i] -= (A_diag->f_act_rows[ii] ^ 1) *
+                                   A_diag_data[jj] * tmp_data[ii];
                 }
                 //  for (jj = A_offd_i[i]; jj < A_offd_i[i + 1]; jj++) {
                 //    ii = A_offd_j[jj];
