@@ -67,10 +67,11 @@ typedef struct
 
 #ifdef __ve__
    sblas_handle_t hnd;
-   int* level;
-   int* Ulevel;
-   int *act_rows;
-   int n_act_rows[2];
+   HYPRE_Int* level;
+   HYPRE_Int* Ulevel;
+   HYPRE_Int* act_rows;
+   HYPRE_Int n_act_rows[2];
+   // HYPRE_Int n_act_rows_1;
 #endif
 
 } hypre_CSRMatrix;

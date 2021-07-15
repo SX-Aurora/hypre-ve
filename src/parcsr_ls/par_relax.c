@@ -13,6 +13,7 @@
 
 #include "../sstruct_ls/gselim.h"
 #include "Common.h"
+#include "HYPRE_parcsr_ls.h"
 #include "_hypre_lapack.h"
 #include "_hypre_parcsr_ls.h"
 #include <ftrace.h>
@@ -428,6 +429,7 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
      *-----------------------------------------------------------------*/
 
     sblas_int_t s_ierr;
+    HYPRE_Int jmp = 1, t_id, inc, nn;
     HYPRE_Real A_offd_res[global_num_rows];
     // fprintf(stderr, "Data: %d\n", n);
     if (!A_offd->hnd) {
@@ -447,49 +449,211 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
       s_ierr = sblas_analyze_mv_rd(SBLAS_TRANSPOSE, A_offd->hnd);
 // multi-level scheduling
 #if 1
+      // A_diag->n_act_rows = (int *)malloc(sizeof(HYPRE_Int) * 2);
       A_diag->n_act_rows[0] = 0;
       A_diag->n_act_rows[1] = 0;
+
+      // A_diag->n_act_rows = 0;
+      // A_diag->n_act_rows_1 = 0;
 
       int m;
 
       // Essam: relaxation points can't be used in checking
       //        according to the algirthm it can be -1/1 or 0 ?!!
+      HYPRE_Int t_cnt[num_threads];
+      HYPRE_Int t_cnt_s;
+
       if (relax_points == 0) {
-        A_diag->act_rows = (int *)malloc(sizeof(int) * n);
-        A_diag->level = (int *)malloc(sizeof(int) * n);
+        A_diag->act_rows = (int *)malloc(sizeof(HYPRE_Int) * n);
+        A_diag->level = (int *)malloc(sizeof(HYPRE_Int) * n);
         for (i = 0; i < n; i++)
           A_diag->level[i] = -1;
 
-        for (i = 0; i < n; i++) {
-          m = -1;
-          if (A_diag_data[A_diag_i[i]] != zero) {
-            A_diag->act_rows[A_diag->n_act_rows[0]++] = i;
+          // n_act_rows_ref = 0;
+#ifdef HYPRE_USING_OPENMP
+#pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size, inc, \
+                             t_cnt_s) firstprivate(A_diag->level)
+#endif
+        {
+          inc = 0;
+          size = n / omp_get_num_threads();
+          rest = n - size * omp_get_num_threads();
+          t_id = omp_get_thread_num();
+
+          if (t_id < rest) {
+            ns = t_id * size + t_id;
+            ne = (t_id + 1) * size + t_id + 1;
+          } else {
+            ns = t_id * size + rest;
+            ne = (t_id + 1) * size + rest;
+          }
+
+          t_cnt[t_id] = 0;
+          for (i = ns; i < ne; i++)
+            if (A_diag_data[A_diag_i[i]] != zero)
+              t_cnt[t_id]++;
+
+#pragma omp atomic
+          A_diag->n_act_rows[0] += t_cnt[t_id];
+
+#pragma omp barrier
+          t_cnt_s = 0;
+          for (i = 0; i < t_id; i++)
+            t_cnt_s += t_cnt[i];
+
+          for (i = ns; i < ne; i++) {
+            m = -1;
+            if (A_diag_data[A_diag_i[i]] != zero) {
+              A_diag->act_rows[t_cnt_s + inc++] = i;
 #pragma _NEC novector
-            for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
-              ii = A_diag_j[jj];
-              if (ii < i && m < A_diag->level[ii])
-                m = A_diag->level[ii];
+              for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
+                ii = A_diag_j[jj];
+                if (ii < i && m < A_diag->level[ii])
+                  m = A_diag->level[ii];
+              }
+              A_diag->level[i] = m + 1;
             }
-            A_diag->level[i] = m + 1;
           }
         }
+        // A_diag->n_act_rows[0] = n_act_rows_ref;
       } else {
         A_diag->act_rows = (int *)malloc(sizeof(int) * 2 * n);
         A_diag->level = (int *)malloc(sizeof(int) * 2 * n);
         for (i = 0; i < 2 * n; i++)
           A_diag->level[i] = -1;
 
+          // n_act_rows_ref = 0;
+
+#ifdef HYPRE_USING_OPENMP
+#pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size, inc, \
+                             t_cnt_s) // firstprivate(A_diag->level)
+#endif
+        {
+          inc = 0;
+          size = n / omp_get_num_threads();
+          rest = n - size * omp_get_num_threads();
+          t_id = omp_get_thread_num();
+
+          if (t_id < rest) {
+            ns = t_id * size + t_id;
+            ne = (t_id + 1) * size + t_id + 1;
+          } else {
+            ns = t_id * size + rest;
+            ne = (t_id + 1) * size + rest;
+          }
+
+          t_cnt[t_id] = 0;
+          for (i = ns; i < ne; i++)
+            if (cf_marker[i] == -1 && A_diag_data[A_diag_i[i]] != zero)
+              t_cnt[t_id]++;
+#pragma omp atomic
+          A_diag->n_act_rows[0] += t_cnt[t_id];
+
+#pragma omp barrier
+          t_cnt_s = 0;
+          for (i = 0; i < t_id; i++)
+            t_cnt_s += t_cnt[i];
+
+          // #pragma omp barrier
+          //           fprintf(stderr, "t_id: %d\t t_cnt_s: %d\n", t_id,
+          //           t_cnt_s[t_id]);
+
+          for (i = ns; i < ne; i++) {
+            m = -1;
+            if (cf_marker[i] == -1 && A_diag_data[A_diag_i[i]] != zero) {
+              A_diag->act_rows[t_cnt_s + inc++] = i;
+#pragma _NEC novector
+              for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
+                ii = A_diag_j[jj];
+                if (ii >= ns && ii < ne)
+                  if (ii < i && m < A_diag->level[ii])
+                    m = A_diag->level[ii];
+              }
+              if (i != 0)
+                A_diag->level[i] = A_diag->level[i - 1];
+              if (m != -1)
+                A_diag->level[i] = m + 1;
+            }
+          }
+        }
+
+#ifdef HYPRE_USING_OPENMP
+#pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size, inc, \
+                             t_cnt_s) // firstprivate(A_diag->level)
+#endif
+        {
+          inc = 0;
+          size = n / omp_get_num_threads();
+          rest = n - size * omp_get_num_threads();
+          t_id = omp_get_thread_num();
+
+          if (t_id < rest) {
+            ns = t_id * size + t_id;
+            ne = (t_id + 1) * size + t_id + 1;
+          } else {
+            ns = t_id * size + rest;
+            ne = (t_id + 1) * size + rest;
+          }
+
+          t_cnt[t_id] = 0;
+          for (i = ns; i < ne; i++)
+            if (cf_marker[i] == 1 && A_diag_data[A_diag_i[i]] != zero)
+              t_cnt[t_id]++;
+#pragma omp atomic
+          A_diag->n_act_rows[1] += t_cnt[t_id];
+
+#pragma omp barrier
+          t_cnt_s = 0;
+          for (i = 0; i < t_id; i++)
+            t_cnt_s += t_cnt[i];
+
+          // #pragma omp barrier
+          //           fprintf(stderr, "t_id: %d\t t_cnt_s: %d\n", t_id,
+          //           t_cnt_s[t_id]);
+
+          for (i = ns; i < ne; i++) {
+            m = -1;
+            if (cf_marker[i] == 1 && A_diag_data[A_diag_i[i]] != zero) {
+              A_diag->act_rows[n + t_cnt_s + inc++] = i;
+#pragma _NEC novector
+              for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
+                ii = A_diag_j[jj];
+                if (ii >= ns && ii < ne)
+                  if (ii < i && m < A_diag->level[n + ii])
+                    m = A_diag->level[n + ii];
+              }
+              if (i != 0)
+                A_diag->level[n + i] = A_diag->level[n + i - 1];
+              if (m != -1)
+                A_diag->level[n + i] = m + 1;
+            }
+          }
+        }
+#if 0
+        // A_diag->n_act_rows[1] = n_act_rows_ref;
+        // Essam: debug ....
+
+        HYPRE_Int act_rows[2 * n];
+        HYPRE_Int level[2 * n];
+        HYPRE_Int n_act_rows[2];
+
+        n_act_rows[0] = 0;
+        n_act_rows[1] = 0;
+
+        for (i = 0; i < 2 * n; i++)
+          level[i] = -1;
+
         for (i = 0; i < n; i++) {
           m = -1;
           if (cf_marker[i] == -1 && A_diag_data[A_diag_i[i]] != zero) {
-            A_diag->act_rows[A_diag->n_act_rows[0]++] = i;
+            act_rows[n_act_rows[0]++] = i;
 #pragma _NEC novector
             for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
               ii = A_diag_j[jj];
-              if (ii < i && m < A_diag->level[ii])
-                m = A_diag->level[ii];
+              if (ii < i && m < level[ii])
+                m = level[ii];
             }
-            A_diag->level[i] = m + 1;
+            level[i] = m + 1;
           }
         }
 
@@ -498,16 +662,33 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
         for (i = 0; i < n; i++) {
           m = -1;
           if (cf_marker[i] == 1 && A_diag_data[A_diag_i[i]] != zero) {
-            A_diag->act_rows[n + A_diag->n_act_rows[1]++] = i;
+            act_rows[n + n_act_rows[1]++] = i;
 #pragma _NEC novector
             for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
               ii = A_diag_j[jj];
-              if (ii < i && m < A_diag->level[n + ii])
-                m = A_diag->level[n + ii];
+              if (ii < i && m < level[n + ii])
+                m = level[n + ii];
             }
-            A_diag->level[n + i] = m + 1;
+            level[n + i] = m + 1;
           }
         }
+        if (n_act_rows[0] != A_diag->n_act_rows[0])
+          fprintf(stderr, "seq n_act[0]: %d par n_act[0]: %d\n", n_act_rows[0],
+                  A_diag->n_act_rows[0]);
+        if (n_act_rows[1] != A_diag->n_act_rows[1])
+          fprintf(stderr, "seq n_act[1]: %d par n_act[1]: %d\n", n_act_rows[1],
+                  A_diag->n_act_rows[1]);
+
+        for (i = 0; i < A_diag->n_act_rows[0]; i++)
+          if (act_rows[i] != A_diag->act_rows[i])
+            fprintf(stderr, "seq act[1]: %d par act[1]: %d\n", act_rows[i],
+                    A_diag->act_rows[i]);
+
+        for (i = 0; i < A_diag->n_act_rows[1]; i++)
+          if (act_rows[n + i] != A_diag->act_rows[n + i])
+            fprintf(stderr, "seq act[1]: %d par act[1]: %d\n", act_rows[n + i],
+                    A_diag->act_rows[n + i]);
+#endif
       }
 
       // building index list
@@ -637,14 +818,18 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
 #endif
           for (i = 0; i < n; i++)
             tmp_data[i] = u_data[i];
-          // Essam: control which part of the level scheduling is controled
 
-          HYPRE_Int jmp = 1, t_id;
-          if (relax_points == -1)
+          // nn = A_diag->n_act_rows_1;
+
+          jmp = 1;
+          if (relax_points == -1) {
             jmp = 0;
+            // nn = A_diag->n_act_rows;
+          }
 
 #ifdef HYPRE_USING_OPENMP
-#pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size) firstprivate(u_data)
+#pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size)      \
+    firstprivate(u_data)
 #endif
           {
             size = A_diag->n_act_rows[jmp] / omp_get_num_threads();
@@ -658,9 +843,6 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
               ns = t_id * size + rest;
               ne = (t_id + 1) * size + rest;
             }
-            // Essam: add temp array - to allow indexing list for multilevel
-            // scheduling HYPRE_Real tmp_u_data[n]; for (i = 0; i < n; i++)
-            //   tmp_u_data[i] = u_data[i];
 
             for (j = ns; j < ne; j++) /* relax interior points */
             {
@@ -675,7 +857,7 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
               for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
                 ii = A_diag_j[jj];
                 // if (ii >= ns && ii < ne)
-                  A_offd_res[i] -= A_diag_data[jj] * u_data[ii];
+                A_offd_res[i] -= A_diag_data[jj] * u_data[ii];
                 // else
                 //   A_offd_res[i] -= A_diag_data[jj] * tmp_data[ii];
                 // A_offd_res[i] -= A_diag_data[jj] * tmp_data[ii];
@@ -687,8 +869,6 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
               u_data[i] = A_offd_res[i] / A_diag_data[A_diag_i[i]];
               // }
             }
-            // for (i = ns; i < ne; i++)
-            //   u_data[i] = tmp_data[i];
           }
         } else {
           for (i = 0; i < n; i++) /* relax interior points */
