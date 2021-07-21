@@ -68,12 +68,28 @@ typedef struct
 #ifdef __ve__
    sblas_handle_t hnd;
    HYPRE_Int* level;
-   HYPRE_Int* Ulevel;
+   HYPRE_Int* level_idx;
+   HYPRE_Int* ulevel;
+   // set of active rows after eliminating conditons
    HYPRE_Int* act_rows;
+
+   
    HYPRE_Int n_act_rows[2];
+   // 0-1 values for flaging data
    HYPRE_Int* f_act_rows;
 
-   // HYPRE_Int n_act_rows_1;
+   // frequency of levels
+   HYPRE_Int* ms_rows_freq;
+   // the number of active rows in the rearranged manner
+   HYPRE_Int* ms_thd_nrows;
+
+   // CSR data reordered according to multi-level scheduling
+   HYPRE_Int* ms_i;
+   HYPRE_Int* ms_j;
+   HYPRE_Int* ms_rhs_idx;
+   HYPRE_Complex* ms_data;
+
+
 #endif
 
 } hypre_CSRMatrix;
