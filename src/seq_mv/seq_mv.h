@@ -67,11 +67,11 @@ typedef struct
 
 #ifdef __ve__
    sblas_handle_t hnd;
-   HYPRE_Int* level;
+   // HYPRE_Int* level;
    HYPRE_Int* level_idx;
-   HYPRE_Int* ulevel;
+   // HYPRE_Int* ulevel;
    // set of active rows after eliminating conditons
-   HYPRE_Int* act_rows;
+   // HYPRE_Int* act_rows;
 
    
    HYPRE_Int n_act_rows[2];
@@ -87,8 +87,9 @@ typedef struct
    HYPRE_Int* ms_i;
    HYPRE_Int* ms_j;
    HYPRE_Int* ms_rhs_idx;
-   HYPRE_Complex* ms_data;
-
+   HYPRE_Real* ms_data;
+   HYPRE_Real* ms_vdata;
+HYPRE_Int max_nnz_row;
 
 #endif
 

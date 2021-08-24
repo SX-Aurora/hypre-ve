@@ -453,90 +453,40 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
       s_ierr = sblas_analyze_mv_rd(SBLAS_TRANSPOSE, A_offd->hnd);
 // multi-level scheduling
 #if 1
-      // A_diag->n_act_rows = (int *)malloc(sizeof(HYPRE_Int) * 2);
-      A_diag->n_act_rows[0] = 0;
-      A_diag->n_act_rows[1] = 0;
-
-      // A_diag->n_act_rows = 0;
-      // A_diag->n_act_rows_1 = 0;
-
-      int m;
 
       // Essam: relaxation points can't be used in checking
       //        according to the algirthm it can be -1/1 or 0 ?!!
-      HYPRE_Int t_cnt[num_threads];
-      HYPRE_Int t_cnt_s;
+
+      asl_sort_t sort;
+      asl_library_initialize();
+      asl_sort_create_i32(&sort, ASL_SORTORDER_ASCENDING,
+                          ASL_SORTALGORITHM_AUTO_STABLE);
+      asl_sort_preallocate(sort, n);
+      HYPRE_Int m;
 
       if (relax_points == 0) {
-        A_diag->act_rows = (int *)malloc(sizeof(HYPRE_Int) * n);
-        A_diag->f_act_rows = (int *)malloc(sizeof(HYPRE_Int) * n);
-        A_diag->level = (int *)malloc(sizeof(HYPRE_Int) * n);
+        HYPRE_Int act_rows[n];
+        HYPRE_Int level[n];
+        HYPRE_Int t_levels_idx[n];
+
+        HYPRE_Int nnz = A_diag_i[n] - A_diag_i[0];
 
         A_diag->ms_i = (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * (n + 1));
-        HYPRE_Int t_nnz = A_diag_i[n] - A_diag_i[0];
-        A_diag->ms_j = (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * t_nnz);
-        A_diag->ms_data =
-            (HYPRE_Complex *)malloc(sizeof(HYPRE_Complex) * t_nnz);
+        A_diag->ms_j = (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * nnz);
+        A_diag->ms_data = (HYPRE_Real *)malloc(sizeof(HYPRE_Real) * nnz);
+        A_diag->ms_rhs_idx = (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * nnz);
+        A_diag->ms_rows_freq = (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * n);
 
-        for (i = 0; i < n; i++)
-          A_diag->level[i] = -1;
+        A_diag->level_idx = (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * n);
+        A_diag->f_act_rows = (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * nnz);
+        A_diag->ms_vdata = (HYPRE_Real *)malloc(sizeof(HYPRE_Real) * n);
 
-// n_act_rows_ref = 0;
-#if 0
 #ifdef HYPRE_USING_OPENMP
-#pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size, inc, \
-                             t_cnt_s)
-#endif
-                  {
-            inc = 0;
-            size = n / omp_get_num_threads();
-            rest = n - size * omp_get_num_threads();
-            t_id = omp_get_thread_num();
-
-            if (t_id < rest) {
-              ns = t_id * size + t_id;
-              ne = (t_id + 1) * size + t_id + 1;
-            } else {
-              ns = t_id * size + rest;
-              ne = (t_id + 1) * size + rest;
-            }
-
-            t_cnt[t_id] = 0;
-            for (i = ns; i < ne; i++)
-              if (A_diag_data[A_diag_i[i]] != zero)
-                t_cnt[t_id]++;
-
-#pragma omp atomic
-            A_diag->n_act_rows[0] += t_cnt[t_id];
-
-#pragma omp barrier
-            t_cnt_s = 0;
-            for (i = 0; i < t_id; i++)
-              t_cnt_s += t_cnt[i];
-
-            for (i = ns; i < ne; i++) {
-              m = -1;
-              if (A_diag_data[A_diag_i[i]] != zero) {
-                A_diag->act_rows[t_cnt_s + inc++] = i;
-#pragma _NEC novector
-                for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
-                  ii = A_diag_j[jj];
-                  if (ii < i && m < A_diag->level[ii])
-                    m = A_diag->level[ii];
-                }
-                A_diag->level[i] = m + 1;
-              }
-            }
-          }
-#else
-#ifdef HYPRE_USING_OPENMP
-#pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size, inc, \
-                             t_cnt_s)
+#pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, rest, size, m)
 #endif
         {
-          inc = 0;
-          size = n / omp_get_num_threads();
-          rest = n - size * omp_get_num_threads();
+          size = n / num_threads;
+          rest = n - size * num_threads;
           t_id = omp_get_thread_num();
 
           if (t_id < rest) {
@@ -547,188 +497,285 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
             ne = (t_id + 1) * size + rest;
           }
 
-          t_cnt[t_id] = 0;
           for (i = ns; i < ne; i++)
-            if (A_diag_data[A_diag_i[i]] != zero)
-              t_cnt[t_id]++;
-#pragma omp atomic
-          A_diag->n_act_rows[0] += t_cnt[t_id];
+            level[i] = -1;
 
-#pragma omp barrier
-          t_cnt_s = 0;
-          for (i = 0; i < t_id; i++)
-            t_cnt_s += t_cnt[i];
-
-          // HYPRE_Int *act_flags= &A_diag_i[ns];
           for (i = ns; i < ne; i++) {
             m = -1;
+            act_rows[i] = -1;
             if (A_diag_data[A_diag_i[i]] != zero) {
-              A_diag->act_rows[t_cnt_s + inc++] = i;
+              act_rows[i] = i;
 #pragma _NEC novector
               for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
                 ii = A_diag_j[jj];
-                if (ii >= ns && ii < ne) {
-                  A_diag->f_act_rows[ii] = 1;
-                  if (ii < i && m < A_diag->level[ii])
-                    m = A_diag->level[ii];
-                } else {
-                  A_diag->f_act_rows[ii] = 0;
-                }
+                if (ii >= ns && ii < ne)
+                  if (ii < i && m < level[ii])
+                    m = level[ii];
+                level[i] = m + 1;
               }
-              // if (i != 0)
-              //   A_diag->level[i] = A_diag->level[i - 1];
-              // if (m != -1)
-              A_diag->level[i] = m + 1;
             }
           }
-        }
-#endif
+          HYPRE_Int nelem = ne - ns;
 
-        // A_diag->n_act_rows[0] = n_act_rows_ref;
-      } else {
-        A_diag->act_rows = (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * 2 * n);
-        A_diag->level = (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * 2 * n);
-        A_diag->level_idx = (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * 2 * n);
+          asl_sort_execute_i32(sort, nelem, &level[ns], &act_rows[ns],
+                               &level[ns], &t_levels_idx[ns]);
 
-        A_diag->ms_thd_nrows =
-            (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * 2 * num_threads);
-        A_diag->ms_rows_freq = (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * 2 * n);
-        A_diag->ms_i = (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * (n + 1) * 2);
-        HYPRE_Int t_nnz = A_diag_i[n] - A_diag_i[0];
-        A_diag->ms_j = (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * t_nnz * 2);
-        A_diag->ms_rhs_idx = (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * t_nnz * 2);
-        A_diag->ms_data =
-            (HYPRE_Complex *)malloc(sizeof(HYPRE_Complex) * t_nnz * 2);
-
-        asl_sort_t sort;
-        asl_library_initialize();
-        asl_sort_create_i32(&sort, ASL_SORTORDER_ASCENDING,
-                            ASL_SORTALGORITHM_AUTO_STABLE);
-        asl_sort_preallocate(sort, n);
-
-        for (i = 0; i < 2 * n; i++) {
-          A_diag->level[i] = -1;
-        }
-
-#ifdef HYPRE_USING_OPENMP
-#pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size, inc, \
-                             t_cnt_s) firstprivate(sort)
-#endif
-        {
-          inc = 0;
-          size = n / omp_get_num_threads();
-          rest = n - size * omp_get_num_threads();
-          t_id = omp_get_thread_num();
-
-          if (t_id < rest) {
-            ns = t_id * size + t_id;
-            ne = (t_id + 1) * size + t_id + 1;
-          } else {
-            ns = t_id * size + rest;
-            ne = (t_id + 1) * size + rest;
-          }
+          A_diag->ms_i[ns] = A_diag_i[ns];
 
           HYPRE_Int *ms_i = A_diag->ms_i + ns;
-          // HYPRE_Int *ms_rhs = A_diag->ms_rhs_idx + A_diag_i[ns];
-          // HYPRE_Int *ms_j = A_diag->ms_j + A_diag_i[ns] + 1;
-          // HYPRE_Complex *ms_data = A_diag->ms_data + A_diag_i[ns] + 1;
+          HYPRE_Int *ms_j = A_diag->ms_j + ms_i[0];
+          HYPRE_Real *ms_data = A_diag->ms_data + ms_i[0];
+          HYPRE_Int *f_act_rows = A_diag->f_act_rows + ms_i[0];
+          // HYPRE_Int *ms_rows_freq = A_diag->ms_rows_freq + ns;
 
-          t_cnt[t_id] = 0;
-          for (i = ns; i < ne; i++)
-            if (cf_marker[i] == -1 && A_diag_data[A_diag_i[i]] != zero)
-              t_cnt[t_id]++;
-#pragma omp atomic
-          A_diag->n_act_rows[0] += t_cnt[t_id];
+          for (i = 0; i < (A_diag_i[ne] - A_diag_i[ns]); i++)
+            f_act_rows[i] = 0;
 
-#pragma omp barrier
-          t_cnt_s = 0;
-          for (i = 0; i < t_id; i++)
-            t_cnt_s += t_cnt[i];
+          HYPRE_Int idx_ia = 0, idx_rhs = 0, idx = 0, k, ik, prev, prev_i;
 
+          prev = level[ns];
+          prev_i = ns;
+          for (i = ns; i < ne; i++) {
+            A_diag->ms_rows_freq[i] = 0;
+          }
+
+          for (i = ns; i < ne; i++) {
+            A_diag->ms_vdata[i] = A_diag_data[A_diag_i[i]];
+
+            A_diag->level_idx[i] = -1;
+            ii = t_levels_idx[i];
+            if (ii != -1) {
+              A_diag->level_idx[ns + idx_ia] = ii;
+              // manage levels
+              if (level[i] == prev) {
+                A_diag->ms_rows_freq[prev_i]++;
+              } else {
+                prev_i = ii;
+                prev = level[i];
+              }
+              for (jj = (A_diag_i[ii] + 1); jj < A_diag_i[ii + 1]; jj++) {
+                k = jj - (A_diag_i[ii] + 1);
+                ik = A_diag_j[jj];
+
+                ms_j[idx + k] = ik;
+                ms_data[idx + k] = A_diag_data[jj];
+
+                if (ik >= ns && ik < ne) {
+                  f_act_rows[idx + k] = 1;
+                }
+              }
+              idx += A_diag_i[ii + 1] - (A_diag_i[ii] + 1);
+
+              ms_i[idx_ia + 1] =
+                  ms_i[idx_ia] + (A_diag_i[ii + 1] - (A_diag_i[ii] + 1));
+              idx_ia++;
+            }
+          }
+          // fprintf(stderr, "t_id: %d\t ns: %d \t ne: %d\t idx_ia:
+          // %d\n", t_id, ns, ne, idx_ia);
           // #pragma omp barrier
-          //           fprintf(stderr, "t_id: %d\t t_cnt_s: %d\n", t_id,
-          //           t_cnt_s[t_id]);
+
+          for (i = idx_ia + 1; i < (ne - ns); i++) {
+            ms_i[i] = ms_i[idx_ia];
+          }
+
+          // for (i = ns; i < ne; i++) {
+          //   jj=A_diag->ms_i[i];
+          //   A_diag->ms_data[jj] = 0;
+          // }
+
+          // if (t_id == 7) {
+          // if (idx_ia < (ne - ns)) {
+          //   fprintf(stderr, "row_ptr\n");
+          //   for (i = ns; i < ne; i++)
+          //     fprintf(stderr, "%d ,", A_diag->ms_i[i]);
+          //   fprintf(stderr, "\n");
+          // }
+
+          // }
+
+          // if (t_id == 7)
+
+          // for (ik = ns; ik < ne; ik++) {
+          //   i = A_diag->level_idx[ik];
+          //   if (i == -1)
+          //     fprintf(stderr, "t_id=%d\t i==-1 @ i=%d\tik=%d\n", t_id, i,
+          //     ik);
+          //   else if (!(i >= ns && i < ne))
+          //     fprintf(stderr, "t_id=%d\t i out range @ i=%d\tik=%d\n", t_id,
+          //     i,
+          //             ik);
+
+          //   if ((A_diag->ms_i[ik + 1] - A_diag->ms_i[ik]) !=
+          //       (A_diag_i[i + 1] - A_diag_i[i]))
+          //     fprintf(stderr, "t_id=%d\t row_ptr i=%d\t%d\t%d\n", t_id, i,
+          //             (A_diag->ms_i[ik + 1] - A_diag->ms_i[ik]),
+          //             (A_diag_i[i + 1] - A_diag_i[i]));
+
+          //   for (jj = A_diag->ms_i[ik]+1; jj < A_diag->ms_i[ik + 1]; jj++) {
+          //     // if (A_diag->ms_j[jj] !=
+          //     //     A_diag_j[A_diag_i[i] + (jj - A_diag->ms_i[ik])])
+          //     if (A_diag->ms_data[jj] !=
+          //         A_diag_data[A_diag_i[i] + (jj - A_diag->ms_i[ik])])
+          //       fprintf(stderr, "%d,",ik);
+          //   }
+          //   fprintf(stderr, "\n");
+          // }
+        }
+
+      } else {
+        HYPRE_Int nnz = A_diag_i[n] - A_diag_i[0];
+
+        HYPRE_Int act_rows[n];
+        HYPRE_Int ms_thd_nrows;
+        HYPRE_Int level[n];
+
+        HYPRE_Int t_levels_idx[n];
+
+        A_diag->level_idx = (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * 2 * n);
+        A_diag->ms_rows_freq =
+            (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * (n + 1) * 2);
+        A_diag->ms_i = (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * (n + 1) * 2);
+        A_diag->ms_j = (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * nnz * 2);
+        // A_diag->ms_rhs_idx = (HYPRE_Int *)malloc(sizeof(HYPRE_Int) * nnz *
+        // 2);
+        A_diag->ms_data = (HYPRE_Real *)malloc(sizeof(HYPRE_Real) * nnz * 2);
+
+        A_diag->ms_vdata = (HYPRE_Real *)malloc(sizeof(HYPRE_Real) * n);
+
+#ifdef HYPRE_USING_OPENMP
+#pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size, inc, \
+                             ms_thd_nrows, m)
+#endif
+        {
+
+          size = n / num_threads;
+          rest = n - size * num_threads;
+          t_id = omp_get_thread_num();
+
+          if (t_id < rest) {
+            ns = t_id * size + t_id;
+            ne = (t_id + 1) * size + t_id + 1;
+          } else {
+            ns = t_id * size + rest;
+            ne = (t_id + 1) * size + rest;
+          }
+          inc = 0;
+
+          for (i = ns; i < ne; i++) {
+            level[i] = -1;
+            A_diag->ms_vdata[i] = A_diag_data[A_diag_i[i]];
+          }
 
           for (i = ns; i < ne; i++) {
             m = -1;
+            act_rows[i] = -1;
             if (cf_marker[i] == -1 && A_diag_data[A_diag_i[i]] != zero) {
-              A_diag->act_rows[t_cnt_s + inc] = i;
+              act_rows[i] = i;
 #pragma _NEC novector
               for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
                 ii = A_diag_j[jj];
                 if (ii >= ns && ii < ne)
-                  if (ii < i && m < A_diag->level[ii])
-                    m = A_diag->level[ii];
+                  if (ii < i && m < level[ii])
+                    m = level[ii];
+                level[i] = m + 1;
               }
-              // if (i != 0)
-              //   A_diag->level[i] = A_diag->level[i - 1];
-              // if (m != -1)
-
-              // all the points outside this rage will be connsidered as level 0
-              // points that no marked will be -1
-              A_diag->level[t_cnt_s + inc] = m + 1;
-              inc++;
             }
           }
 
-          // sort chunks of the levels but allow only one thread
-          // ASL sorting is already parallelized
-          // #pragma omp single
-          //           {
+          // ms_thd_nrows = inc;
+          HYPRE_Int nelem = ne - ns;
+          asl_sort_execute_i32(sort, nelem, level + ns, act_rows + ns,
+                               level + ns, t_levels_idx + ns);
 
-          asl_sort_execute_i32(
-              sort, inc, A_diag->level + t_cnt_s, A_diag->act_rows + t_cnt_s,
-              A_diag->level + t_cnt_s, A_diag->level_idx + t_cnt_s);
+          // copy data in ordered manner
+          // HYPRE_Int prev, acc, inc_idx = 0;
 
-          // }
-          // copy data
-          A_diag->ms_thd_nrows[t_id] = inc;
-          HYPRE_Int prev;
-          inc = 0;
+          // A_diag->ms_i[ns] = A_diag_i[ns];
+
+          HYPRE_Int *ms_i = A_diag->ms_i + ns;
           ms_i[0] = A_diag_i[ns];
-          prev = A_diag->level[ns];
-          A_diag->ms_rows_freq[t_cnt_s] = 0;
+          HYPRE_Int *ms_rows_freq = A_diag->ms_rows_freq;
+
+          HYPRE_Int *ms_j = A_diag->ms_j + ms_i[0];
+          HYPRE_Real *ms_data = A_diag->ms_data + ms_i[0];
+          // HYPRE_Int *ms_rhs_idx = A_diag->ms_rhs_idx + ms_i[0];
+
+          HYPRE_Int idx_ia = 0, idx_rhs = 0, idx_freq = 0, idx = 0, k, ik, prev;
+          prev = level[ns];
 
           for (i = ns; i < ne; i++) {
-            if ((i - ns) < A_diag->ms_thd_nrows[t_id]) {
-              ii = A_diag->level_idx[t_cnt_s + (i - ns)];
-              if (prev != A_diag->level[t_cnt_s + (i - ns)]) {
-                ms_i[inc + 1] = ms_i[inc];
-                A_diag->ms_rows_freq[t_cnt_s + inc + 1] = 0;
-                inc++;
+            // ii = A_diag->level_idx[i];
+            A_diag->level_idx[i] = -1;
+            ii = t_levels_idx[i];
+            if (ii != -1) {
+              if (prev != level[i]) {
+                prev = level[i];
+                idx_freq++;
+                ms_rows_freq[idx_freq] = 1;
+              } else {
+                ms_rows_freq[idx_freq]++;
               }
-              // count the number of rows before chaning the level
-              A_diag->ms_rows_freq[t_cnt_s + inc]++;
-
+              A_diag->level_idx[ns + idx_ia] = ii;
               for (jj = A_diag_i[ii] + 1; jj < A_diag_i[ii + 1]; jj++) {
+                k = jj - (A_diag_i[ii] + 1);
+                ik = A_diag_j[jj];
 
-                A_diag->ms_j[ms_i[inc]] = A_diag_j[jj];
-                A_diag->ms_data[ms_i[inc]] = A_diag_data[jj];
-                A_diag->ms_rhs_idx[ms_i[inc]] = ii;
-                ms_i[inc]++;
+                ms_j[idx + k] = ik;
+                // ms_rhs_idx[idx + k] = ii;
+                ms_data[idx + k] = A_diag_data[jj];
               }
-            } else {
-              ms_i[inc + 1] = ms_i[inc];
-              A_diag->ms_rows_freq[t_cnt_s + inc + 1] = 0;
-              inc++;
+              idx += A_diag_i[ii + 1] - (A_diag_i[ii] + 1);
+
+              ms_i[idx_ia + 1] =
+                  ms_i[idx_ia] + (A_diag_i[ii + 1] - (A_diag_i[ii] + 1));
+              idx_ia++;
             }
           }
 
-          // if (t_id == 1) {
-          //   for (i = t_cnt_s; i < t_cnt_s + inc; i++)
-          //     fprintf(stderr, "%d, ", A_diag->level_idx[i]);
-          //   fprintf(stderr, "\n\n");
-          // }
+          for (i = idx_ia + 1; i < (ne - ns); i++) {
+            ms_i[i] = ms_i[idx_ia];
+          }
+
+          // if (t_id == 7)
+
+          for (ik = ns; ik < ne; ik++) {
+            i = A_diag->level_idx[ik];
+            if (i != -1) {
+              //   fprintf(stderr, "t_id=%d\t i==-1 @ i=%d\tik=%d\n", t_id, i,
+              //   ik);
+              // else
+              if (!(i >= ns && i < ne))
+                fprintf(stderr, "t_id=%d\t i out range @ i=%d\tik=%d\n", t_id,
+                        i, ik);
+
+              if ((A_diag->ms_i[ik + 1] - A_diag->ms_i[ik]) !=
+                  (A_diag_i[i + 1] - A_diag_i[i] - 1))
+                fprintf(stderr, "t_id=%d\t row_ptr i=%d\t%d\t%d\n", t_id, i,
+                        (A_diag->ms_i[ik + 1] - A_diag->ms_i[ik]),
+                        (A_diag_i[i + 1] - A_diag_i[i] - 1));
+
+              for (jj = A_diag->ms_i[ik] + 1; jj < A_diag->ms_i[ik + 1]; jj++) {
+                if (A_diag->ms_j[jj] !=
+                    A_diag_j[A_diag_i[i] + 1 + (jj - A_diag->ms_i[ik])])
+                  fprintf(stderr, "c%d,", ik);
+                if (A_diag->ms_data[jj] !=
+                    A_diag_data[A_diag_i[i] + 1 + (jj - A_diag->ms_i[ik])])
+                  fprintf(stderr, "%d,", ik);
+              }
+              // fprintf(stderr, "\n");
+            }
+          }
         }
 
 #ifdef HYPRE_USING_OPENMP
 #pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size, inc, \
-                             t_cnt_s) firstprivate(sort)
+                             ms_thd_nrows, m)
 #endif
         {
-          inc = 0;
-          size = n / omp_get_num_threads();
-          rest = n - size * omp_get_num_threads();
+
+          size = n / num_threads;
+          rest = n - size * num_threads;
           t_id = omp_get_thread_num();
 
           if (t_id < rest) {
@@ -739,167 +786,83 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
             ne = (t_id + 1) * size + rest;
           }
 
-          HYPRE_Int nelem = ne - ns;
-          HYPRE_Int level_idx[nelem];
-          t_cnt[t_id] = 0;
           for (i = ns; i < ne; i++)
-            if (cf_marker[i] == 1 && A_diag_data[A_diag_i[i]] != zero)
-              t_cnt[t_id]++;
-#pragma omp atomic
-          A_diag->n_act_rows[1] += t_cnt[t_id];
+            level[i] = -1;
 
-#pragma omp barrier
-          t_cnt_s = 0;
-          for (i = 0; i < t_id; i++)
-            t_cnt_s += t_cnt[i];
-
-          // #pragma omp barrier
-          //           fprintf(stderr, "t_id: %d\t t_cnt_s: %d\n", t_id,
-          //           t_cnt_s[t_id]);
-
+          inc = 0;
           for (i = ns; i < ne; i++) {
-            level_idx[i - ns] = -1;
             m = -1;
+            act_rows[i] = -1;
             if (cf_marker[i] == 1 && A_diag_data[A_diag_i[i]] != zero) {
-              A_diag->act_rows[n + t_cnt_s + inc++] = i;
+              act_rows[i] = i;
 #pragma _NEC novector
               for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
                 ii = A_diag_j[jj];
                 if (ii >= ns && ii < ne)
-                  if (ii < i && m < A_diag->level[n + ii])
-                    m = A_diag->level[n + ii];
+                  if (ii < i && m < level[ii])
+                    m = level[ii];
+                level[i] = m + 1;
               }
-              // if (i != 0)
-              //   A_diag->level[n + i] = A_diag->level[n + i - 1];
-              // if (m != -1)
-              A_diag->level[n + i] = m + 1;
-              level_idx[i - ns] = i;
+              // inc++;
             }
           }
+          ms_thd_nrows = inc;
+          asl_sort_execute_i32(sort, ne - ns, level + ns, act_rows + ns,
+                               level + ns,
+                               /*A_diag->level_idx + n*/ t_levels_idx + ns);
 
-          asl_sort_execute_i32(sort, nelem, A_diag->level + n + ns, level_idx,
-                               A_diag->level + n + ns,
-                               A_diag->level_idx + n + ns);
+          // copy data in ordered manner
+          // A_diag->ms_i[(n + 1) + ns] = A_diag_i[ns];
 
-          // copy data
-          A_diag->ms_thd_nrows[num_threads + t_id] = inc;
-          HYPRE_Int prev;
-          inc = 0;
           HYPRE_Int *ms_i = A_diag->ms_i + (n + 1) + ns;
           ms_i[0] = A_diag_i[ns];
-          prev = A_diag->level[n + ns];
-          A_diag->ms_rows_freq[t_cnt_s] = 0;
+          HYPRE_Int *ms_rows_freq = A_diag->ms_rows_freq + (n + 1);
+
+          HYPRE_Int *ms_j = A_diag->ms_j + nnz + ms_i[0];
+          HYPRE_Real *ms_data = A_diag->ms_data + nnz + ms_i[0];
+          // HYPRE_Int *ms_rhs_idx = A_diag->ms_rhs_idx + nnz + ms_i[0];
+
+          HYPRE_Int idx_ia = 0, idx_rhs = 0, idx_freq = 0, idx = 0, k, ik, prev;
+          prev = level[ns];
+
           for (i = ns; i < ne; i++) {
-            if ((i - ns) < A_diag->ms_thd_nrows[num_threads + t_id]) {
-              ii = A_diag->level_idx[n + t_cnt_s + (i - ns)];
-              if (prev != A_diag->level[n + t_cnt_s + (i - ns)]) {
-                ms_i[inc + 1] = ms_i[inc];
-                A_diag->ms_rows_freq[t_cnt_s + inc + 1] = 0;
-                inc++;
+            // ii = A_diag->level_idx[i];
+            A_diag->level_idx[n + i] = -1;
+            ii = t_levels_idx[i];
+            if (ii != -1) {
+              if (prev != level[i]) {
+                prev = level[i];
+                idx_freq++;
+                ms_rows_freq[idx_freq] = 1;
+              } else {
+                ms_rows_freq[idx_freq]++;
               }
-              A_diag->ms_rows_freq[t_cnt_s + inc]++;
+              A_diag->level_idx[n + ns + idx_ia] = ii;
               for (jj = A_diag_i[ii] + 1; jj < A_diag_i[ii + 1]; jj++) {
-                A_diag->ms_j[t_nnz + ms_i[inc]] = A_diag_j[jj];
-                A_diag->ms_data[t_nnz + ms_i[inc]] = A_diag_data[jj];
-                A_diag->ms_rhs_idx[t_nnz + ms_i[inc]] = ii;
-                ms_i[inc]++;
+                k = jj - (A_diag_i[ii] + 1);
+                ik = A_diag_j[jj];
+
+                ms_j[idx + k] = ik;
+                // ms_rhs_idx[idx + k] = ii;
+                ms_data[idx + k] = A_diag_data[jj];
               }
-            } else {
-              ms_i[inc + 1] = ms_i[inc];
-              A_diag->ms_rows_freq[t_cnt_s + inc + 1] = 0;
-              inc++;
+              idx += A_diag_i[ii + 1] - (A_diag_i[ii] + 1);
+
+              ms_i[idx_ia + 1] =
+                  ms_i[idx_ia] + (A_diag_i[ii + 1] - (A_diag_i[ii] + 1));
+              idx_ia++;
             }
           }
-        }
-        /* Sorting Finalization */
-        asl_sort_destroy(sort);
-        /* Library Finalization */
-        asl_library_finalize();
 
-#if 0
-        // A_diag->n_act_rows[1] = n_act_rows_ref;
-        // Essam: debug ....
-
-        HYPRE_Int act_rows[2 * n];
-        HYPRE_Int level[2 * n];
-        HYPRE_Int n_act_rows[2];
-
-        n_act_rows[0] = 0;
-        n_act_rows[1] = 0;
-
-        for (i = 0; i < 2 * n; i++)
-          level[i] = -1;
-
-        for (i = 0; i < n; i++) {
-          m = -1;
-          if (cf_marker[i] == -1 && A_diag_data[A_diag_i[i]] != zero) {
-            act_rows[n_act_rows[0]++] = i;
-#pragma _NEC novector
-            for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
-              ii = A_diag_j[jj];
-              if (ii < i && m < level[ii])
-                m = level[ii];
-            }
-            level[i] = m + 1;
+          for (i = idx_ia + 1; i < (ne - ns); i++) {
+            ms_i[i] = ms_i[idx_ia];
           }
         }
-
-        //
-
-        for (i = 0; i < n; i++) {
-          m = -1;
-          if (cf_marker[i] == 1 && A_diag_data[A_diag_i[i]] != zero) {
-            act_rows[n + n_act_rows[1]++] = i;
-#pragma _NEC novector
-            for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
-              ii = A_diag_j[jj];
-              if (ii < i && m < level[n + ii])
-                m = level[n + ii];
-            }
-            level[n + i] = m + 1;
-          }
-        }
-        if (n_act_rows[0] != A_diag->n_act_rows[0])
-          fprintf(stderr, "seq n_act[0]: %d par n_act[0]: %d\n", n_act_rows[0],
-                  A_diag->n_act_rows[0]);
-        if (n_act_rows[1] != A_diag->n_act_rows[1])
-          fprintf(stderr, "seq n_act[1]: %d par n_act[1]: %d\n", n_act_rows[1],
-                  A_diag->n_act_rows[1]);
-
-        for (i = 0; i < A_diag->n_act_rows[0]; i++)
-          if (act_rows[i] != A_diag->act_rows[i])
-            fprintf(stderr, "seq act[1]: %d par act[1]: %d\n", act_rows[i],
-                    A_diag->act_rows[i]);
-
-        for (i = 0; i < A_diag->n_act_rows[1]; i++)
-          if (act_rows[n + i] != A_diag->act_rows[n + i])
-            fprintf(stderr, "seq act[1]: %d par act[1]: %d\n", act_rows[n + i],
-                    A_diag->act_rows[n + i]);
-#endif
       }
-
-      // building index list
-      // m = m + 1;
-      // // int* freq= (int *) malloc(sizeof(int)*m);
-      // int freq[m];
-      // memset(freq, 0, sizeof(int) * m);
-      // for (i = 0; i < n; i++) {
-      //   if (A_diag->level[i] != -1) {
-      //     freq[A_diag->level[i]]++;
-      //   }
-      // }
-
-      // fprintf(stderr, "The number of rows: %d\t #levels: %d\n", n, tmp_cnt);
-      // fprintf(stderr, "Data: %p %p %p \t %d %d %d\n", &A_diag_data,
-      // &A_diag_i,
-      //         &A_diag_j, mrow, ncol, sizeof(A_offd_data) /
-      //         sizeof(double));
-      // for (i = 0; i < m; i++) {
-      //    fprintf(stderr, "%d, ", freq[i]);
-      // }
-      // fprintf(stderr, "\n");
-
-      // free(freq);
+      /* Sorting Finalization */
+      asl_sort_destroy(sort);
+      /* Library Finalization */
+      asl_library_finalize();
 #endif
     }
 #ifdef HYPRE_USING_OPENMP
@@ -908,8 +871,8 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
     for (i = 0; i < n; i++) {
       A_offd_res[i] = f_data[i];
     }
-    s_ierr = sblas_execute_mv_rd(SBLAS_TRANSPOSE, A_offd->hnd, 1.0, Vext_data,
-                                 -1.0, A_offd_res);
+    s_ierr = sblas_execute_mv_rd(SBLAS_TRANSPOSE, A_offd->hnd, -1.0, Vext_data,
+                                 1.0, A_offd_res);
 
     /*-----------------------------------------------------------------
      * Relax all points.
@@ -922,7 +885,7 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
     if (relax_weight == 1 && omega == 1) {
       if (relax_points == 0) {
         // Essam: testing
-        if (num_threads > 8) {
+        if (num_threads > 1) {
           tmp_data = Ztemp_data;
 #ifdef HYPRE_USING_OPENMP
 #pragma omp parallel for private(i) HYPRE_SMP_SCHEDULE
@@ -1000,18 +963,12 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
 #ifdef _FTRACE
         ftrace_region_begin("RELAX_CF_POINT_0");
 #endif
-        if (num_threads > 1) {
-          tmp_data = Ztemp_data;
-#ifdef HYPRE_USING_OPENMP
-#pragma omp parallel for private(i) HYPRE_SMP_SCHEDULE
-#endif
-          for (i = 0; i < n; i++)
-            tmp_data[i] = u_data[i];
-
+        if (num_threads >= 1) {
+#if 0
           jmp = 1;
-          if (relax_points == -1) {
+          if (relax_points == -1)
             jmp = 0;
-          }
+
           HYPRE_Int nnz = A_diag_i[n] - A_diag_i[0];
 
 #ifdef HYPRE_USING_OPENMP
@@ -1019,8 +976,8 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
     firstprivate(u_data)
 #endif
           {
-            size = A_diag->n_act_rows[jmp] / omp_get_num_threads();
-            rest = A_diag->n_act_rows[jmp] - size * omp_get_num_threads();
+            size = n / omp_get_num_threads();
+            rest = n - size * omp_get_num_threads();
             t_id = omp_get_thread_num();
 
             if (t_id < rest) {
@@ -1030,22 +987,88 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
               ns = t_id * size + rest;
               ne = (t_id + 1) * size + rest;
             }
+            // alias sorted data
+            HYPRE_Int *ms_i = A_diag->ms_i + (n + 1) * jmp;
+            HYPRE_Int *ms_j = A_diag->ms_j + nnz * jmp;
+            // HYPRE_Int *ms_rhs_idx = A_diag->ms_rhs_idx + nnz * jmp;
+            HYPRE_Real *ms_data = A_diag->ms_data + nnz * jmp;
+            HYPRE_Int *ms_rows_freq = A_diag->ms_rows_freq + (n + 1) * jmp;
+            HYPRE_Int *ms_level_idx = A_diag->level_idx + n * jmp;
 
-            for (j = ns; j < ne; j++) /* relax interior points */
+            HYPRE_Int prev = 0;
+
+            for (j = ns; j < ne; j++) {
+              i = ms_level_idx[j];
+              if (i != 0) {
+                u_data[i]=A_offd_res[i];
+                // compute independent levels
+                // #pragma _NEC ivdep
+                // #pragma _NEC dependency_test
+                for (jj = ms_i[i]; jj < ms_i[i + 1]; jj++) {
+                  ii = ms_j[jj];
+                  // i = ms_rhs_idx[jj];
+                  u_data[i] -= ms_data[jj] * u_data[ii];
+                }
+
+                // update independent levels
+                // #pragma _NEC list_vector
+                // #pragma _NEC dependency_test
+                // for (jj = ms_rows_freq[j]; jj < ms_rows_freq[j + 1]; j++) {
+                //   i = ms_level_idx[jj];
+                // u_data[i] = A_offd_res[i] / A_diag->ms_vdata[i];
+                u_data[i] /= A_diag->ms_vdata[i];
+                // }
+              }
+            }
+          }
+#else
+          tmp_data = Ztemp_data;
+#ifdef HYPRE_USING_OPENMP
+#pragma omp parallel for private(i) HYPRE_SMP_SCHEDULE
+#endif
+          for (i = 0; i < n; i++)
+            tmp_data[i] = u_data[i];
+
+#ifdef HYPRE_USING_OPENMP
+#pragma omp parallel for private(i, ii, j, jj, ns, ne, res, rest, size)        \
+    HYPRE_SMP_SCHEDULE
+#endif
+          for (j = 0; j < num_threads; j++) {
+            size = n / num_threads;
+            rest = n - size * num_threads;
+            if (j < rest) {
+              ns = j * size + j;
+              ne = (j + 1) * size + j + 1;
+            } else {
+              ns = j * size + rest;
+              ne = (j + 1) * size + rest;
+            }
+            for (i = ns; i < ne; i++) /* relax interior points */
             {
-              i = A_diag->act_rows[n * jmp + j];
               /*-----------------------------------------------------------
                * If i is of the right type ( C or F ) and diagonal is
                * nonzero, relax point i; otherwise, skip it.
                *-----------------------------------------------------------*/
-
-              for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
-                ii = A_diag_j[jj];
-                A_offd_res[i] -= A_diag_data[jj] * u_data[ii];
+              if (cf_marker[i] == relax_points &&
+                  A_diag_data[A_diag_i[i]] != zero) {
+                //  res = f_data[i];
+                for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
+                  ii = A_diag_j[jj];
+                  if (ii >= ns && ii < ne)
+                    A_offd_res[i] -= A_diag_data[jj] * u_data[ii];
+                  else
+                    A_offd_res[i] -= A_diag_data[jj] * tmp_data[ii];
+                }
+                //  for (jj = A_offd_i[i]; jj < A_offd_i[i + 1]; jj++) {
+                //    ii = A_offd_j[jj];
+                //    res -= A_offd_data[jj] * Vext_data[ii];
+                //  }
+                u_data[i] = A_offd_res[i] / A_diag_data[A_diag_i[i]];
               }
-              u_data[i] = A_offd_res[i] / A_diag_data[A_diag_i[i]];
             }
           }
+#endif
+
         } else {
           for (i = 0; i < n; i++) /* relax interior points */
           {
@@ -1089,11 +1112,14 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
           for (i = 0; i < n; i++)
             tmp_data[i] = u_data[i];
 #ifdef HYPRE_USING_OPENMP
-#pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size)
+#pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size)      \
+    firstprivate(u_data)
 #endif
           {
-            size = A_diag->n_act_rows[jmp] / omp_get_num_threads();
-            rest = A_diag->n_act_rows[jmp] - size * omp_get_num_threads();
+            HYPRE_Int ik, jk;
+
+            size = n / num_threads;
+            rest = n - size * num_threads;
             t_id = omp_get_thread_num();
             if (t_id < rest) {
               ns = t_id * size + t_id;
@@ -1102,38 +1128,118 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
               ns = t_id * size + rest;
               ne = (t_id + 1) * size + rest;
             }
+            // ns = 0;
+            // ne = n;
+            // if (t_id == 7)
+            //   for (ik = ns; ik < ne; ik++) {
+            //     i = A_diag->level_idx[ik];
+            //     if (i == -1)
+            //       fprintf(stderr, "i==-1 @ i=%d\tik=%d\n", i, ik);
+            //     else if ((i >= ns && i < ne))
+            //       fprintf(stderr, "i out range @ i=%d\tik=%d\n", i, ik);
+
+            //     for (jj = A_diag->ms_i[i]; jj < A_diag->ms_i[i + 1]; jj++) {
+            //       if (A_diag->ms_j[jj] !=
+            //           A_diag_j[A_diag_i[ik] + (jj - A_diag->ms_i[i])])
+            //         fprintf(stderr, "i=%d\tik=%d,", i, ik);
+            //     }
+            //     fprintf(stderr, "\n");
+            //   }
+
+            // #pragma omp barrier
+
+#if 0
+            for (ik = ns; ik < ne; ik++) /* interior points first */
+            {
+              i = A_diag->level_idx[ik];
+              if (i != -1) {
+                res0 = 0.0;
+                res2 = 0.0;
+                for (jj = A_diag->ms_i[ik]; jj < A_diag->ms_i[ik + 1]; jj++) {
+                  ii = A_diag->ms_j[jj];
+                  res0 -=
+                      A_diag->f_act_rows[jj] * A_diag->ms_data[jj] * u_data[ii];
+                  res2 += A_diag->f_act_rows[jj] * A_diag->ms_data[jj] *
+                          Vtemp_data[ii];
+                  A_offd_res[i] -= (A_diag->f_act_rows[jj] ^ 1) *
+                                   A_diag->ms_data[jj] * tmp_data[ii];
+                }
+
+                u_data[i] *= prod;
+                u_data[i] +=
+                    relax_weight *
+                    (omega * A_offd_res[i] + res0 + one_minus_omega * res2) /
+                    A_diag->ms_vdata[i];
+              }
+            }
+#elif 1
+            for (ik = ns; ik < ne; ik++) /* interior points first */
+            {
+              i = A_diag->level_idx[ik];
+              if (i != -1) {
+                HYPRE_Int freq = A_diag->ms_rows_freq[i];
+                HYPRE_Int freq_res[3 * freq];
+                for (jk = 0; jk < 3 * freq; jk++)
+                  freq_res[jk] = 0;
+#pragma _NEC collapse
+                for (jk = 0; jk < freq; jk++) {
+                  for (jj = A_diag->ms_i[ik + jk];
+                       jj < A_diag->ms_i[ik + jk + 1]; jj++) {
+                    ii = A_diag->ms_j[jj];
+                    freq_res[3 * jk] -= A_diag->f_act_rows[jj] *
+                                        A_diag->ms_data[jj] * u_data[ii];
+                    freq_res[3 * jk + 1] += A_diag->f_act_rows[jj] *
+                                            A_diag->ms_data[jj] *
+                                            Vtemp_data[ii];
+                    freq_res[3 * jk + 2] += (A_diag->f_act_rows[jj] ^ 1) *
+                                            A_diag->ms_data[jj] * tmp_data[ii];
+                  }
+                }
+#pragma _NEC ivdep
+                for (jk = 0; jk < freq; jk++) {
+                  i = A_diag->level_idx[ik + jk];
+                  A_offd_res[i] -= freq_res[3 * jk + 2];
+
+                  u_data[i] *= prod;
+                  u_data[i] += relax_weight *
+                               (omega * A_offd_res[i] + freq_res[3 * jk] +
+                                one_minus_omega * freq_res[3 * jk + 1]) /
+                               A_diag->ms_vdata[i];
+                }
+                ik += freq;
+              }
+            }
+#else
             for (i = ns; i < ne; i++) /* interior points first */
             {
               /*-----------------------------------------------------------
                * If diagonal is nonzero, relax point i; otherwise, skip it.
                *-----------------------------------------------------------*/
               if (A_diag_data[A_diag_i[i]] != zero) {
-                //  res = f_data[i];
+                res = f_data[i];
                 res0 = 0.0;
                 res2 = 0.0;
                 for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1]; jj++) {
                   ii = A_diag_j[jj];
-                  // if (ii >= ns && ii < ne) {
-                  res0 -= A_diag->f_act_rows[ii] * A_diag_data[jj] * u_data[ii];
-                  res2 +=
-                      A_diag->f_act_rows[ii] * A_diag_data[jj] * Vtemp_data[ii];
-                  // } else
-                  A_offd_res[i] -= (A_diag->f_act_rows[ii] ^ 1) *
-                                   A_diag_data[jj] * tmp_data[ii];
+                  if (ii >= ns && ii < ne) {
+                    res0 -= A_diag_data[jj] * u_data[ii];
+                    res2 += A_diag_data[jj] * Vtemp_data[ii];
+                  } else {
+                    res -= A_diag_data[jj] * tmp_data[ii];
+                  }
                 }
-                //  for (jj = A_offd_i[i]; jj < A_offd_i[i + 1]; jj++) {
-                //    ii = A_offd_j[jj];
-                //    res -= A_offd_data[jj] * Vext_data[ii];
-                //  }
+                for (jj = A_offd_i[i]; jj < A_offd_i[i + 1]; jj++) {
+                  ii = A_offd_j[jj];
+                  res -= A_offd_data[jj] * Vext_data[ii];
+                }
                 u_data[i] *= prod;
                 u_data[i] +=
-                    relax_weight *
-                    (omega * A_offd_res[i] + res0 + one_minus_omega * res2) /
+                    omega *
+                    (relax_weight * res + res0 + one_minus_weight * res2) /
                     A_diag_data[A_diag_i[i]];
-                /*u_data[i] += omega*(relax_weight*res + res0 +
-                  one_minus_weight*res2) / A_diag_data[A_diag_i[i]];*/
               }
             }
+#endif
           }
         } else {
           for (i = 0; i < n; i++) /* interior points first */
@@ -2017,9 +2123,372 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
      * Relax all points.
      *-----------------------------------------------------------------*/
 
+    /*-----------------------------------------------------------------
+     * ESSAM: replace A_offd_i SpMV routine
+     *-----------------------------------------------------------------*/
+
+    sblas_int_t s_ierr;
+    HYPRE_Int jmp = 1, t_id, inc, nn;
+    HYPRE_Real A_offd_res[global_num_rows];
+    if (!A_offd->hnd) {
+      // A_offd->flag=1;
+      sblas_int_t mrow = (sblas_int_t)n;
+      sblas_int_t ncol =
+          (sblas_int_t)num_cols_offd; // always passed as zero ..!
+
+      sblas_int_t *iaptr = A_offd_i;
+      sblas_int_t *iaind = A_offd_j;
+      double *avals = A_offd_data;
+
+      s_ierr = sblas_create_matrix_handle_from_csr_rd(
+          mrow, mrow, iaptr, iaind, avals, SBLAS_INDEXING_0, SBLAS_GENERAL,
+          &A_offd->hnd); // handler
+
+      s_ierr = sblas_analyze_mv_rd(SBLAS_TRANSPOSE, A_offd->hnd);
+// multi-level scheduling
+#if 1
+
+      int *rows;
+      int *level;
+      int m;
+
+      int max_nnz_row = 0;
+#pragma omp parallel for private(i, j) reduction(max : max_nnz_row)
+      for (i = 0; i < n; i++) {
+        j = A_diag_i[i + 1] - A_diag_i[i] /*- 1*/;
+        max_nnz_row = (max_nnz_row < j) ? j : max_nnz_row;
+      }
+      int nnz = n * max_nnz_row;
+
+      A_diag->max_nnz_row = max_nnz_row;
+
+      // d_fprintf("The max num of nnz per rows: %d\n", max_nnz_row);
+
+      int t_levels_idx[n];
+      int t_nnz_rows[n];
+
+      A_diag->ms_rows_freq = (int *)malloc(sizeof(int) * 4 * n);
+      A_diag->ms_i = (int *)malloc(sizeof(int) * 2 * (n + num_threads));
+
+      A_diag->ms_j = (int *)malloc(sizeof(int) * 2 * nnz);
+      A_diag->ms_data = (double *)malloc(sizeof(double) * 2 * nnz);
+
+#pragma omp parallel for if (nnz > 4069)
+      for (i = 0; i < 2 * nnz; i++) {
+        A_diag->ms_j[i] = 0;
+        A_diag->ms_data[i] = 0;
+      }
+
+      level = (int *)malloc(sizeof(int) * n);
+      rows = (int *)malloc(sizeof(int) * n);
+
+      A_diag->level_idx = (int *)malloc(sizeof(int) * 2 * n);
+      // A_diag->ms_rhs_idx = (int *)malloc(sizeof(int) * nnz);
+
+      A_diag->f_act_rows = (int *)malloc(sizeof(int) * 2 * nnz);
+      A_diag->ms_vdata = (double *)malloc(sizeof(double) * n);
+
+      asl_sort_t sort, usort;
+      asl_library_initialize();
+      asl_sort_create_i32(&sort, ASL_SORTORDER_ASCENDING,
+                          ASL_SORTALGORITHM_AUTO_STABLE);
+      asl_sort_preallocate(sort, n);
+
+#pragma omp parallel private(i, j, jj, ii, t_id, ns, ne, rest, size, m)
+      {
+
+        size = n / num_threads;
+        rest = n - size * num_threads;
+        t_id = omp_get_thread_num();
+
+        if (t_id < rest) {
+          ns = t_id * size + t_id;
+          ne = (t_id + 1) * size + t_id + 1;
+        } else {
+          ns = t_id * size + rest;
+          ne = (t_id + 1) * size + rest;
+        }
+
+        for (i = ns; i < ne; i++)
+          level[i] = -1;
+
+        for (i = ns; i < ne; i++) {
+          m = -1;
+          rows[i] = -1;
+          A_diag->ms_vdata[i] = A_diag_data[A_diag_i[i]];
+          t_nnz_rows[i] = A_diag_i[i + 1] - A_diag_i[i] - 1;
+          if (A_diag->ms_vdata[i] != zero) {
+            rows[i] = i;
+#pragma _NEC novector
+            for (jj = A_diag_i[i]; jj < A_diag_i[i + 1]; jj++) {
+              ii = A_diag_j[jj];
+              if (ii >= ns && ii < ne) {
+                if (ii < i && m < level[ii])
+                  m = level[ii];
+                // if (ii > i)
+                //   level[ii] = m + 1;
+              }
+            }
+            // Check if some previous rows needs my value.
+            if (level[i] > m + 1) {
+              m = level[i];
+            } else {
+              level[i] = m + 1;
+            }
+// Set all columns after my diagonal to my level.
+#pragma _NEC novector
+            for (jj = A_diag_i[i]; jj < A_diag_i[i + 1]; jj++) {
+              ii = A_diag_j[jj];
+              if (ii >= ns && ii < ne)
+                if (ii > i && A_diag->ms_vdata[ii] != zero)
+                  level[ii] = m + 1;
+            }
+          }
+        }
+        int nelem = ne - ns;
+
+        asl_sort_execute_i32(sort, nelem, &level[ns], &rows[ns], &level[ns],
+                             &t_levels_idx[ns]);
+
+        for (i = A_diag_i[ns]; i < A_diag_i[ne]; i++)
+          A_diag->f_act_rows[i] = 0;
+
+        int _ns, _ne;
+
+        int idx_ia, idx_rhs, idx, k, ik, prev, prev_i, max_nnz;
+
+        _ns = ns + t_id;
+        _ne = ne + t_id;
+        idx_ia = 0;
+        idx = 0;
+
+        int *ms_i = A_diag->ms_i + _ns;
+        ms_i[0] = ns * max_nnz_row; // A_diag_i[ns];
+
+        int *ms_j = A_diag->ms_j + ms_i[0];
+        double *ms_data = A_diag->ms_data + ms_i[0];
+        int *f_act_rows = A_diag->f_act_rows + ms_i[0];
+        int *ms_rows_freq = A_diag->ms_rows_freq;
+        int *level_idx = A_diag->level_idx;
+
+        for (i = ns; i < ne; i++) {
+          ms_rows_freq[2 * i] = 0;
+          ms_rows_freq[2 * i + 1] = 0;
+        }
+
+        prev = -1; // level[ns];
+        prev_i = ns;
+        max_nnz = 0;
+        ms_rows_freq[2 * prev_i] = 0;
+        // if (prev != -1)
+        //   ms_rows_freq[2 * prev_i + 1] = 1;
+        for (i = ns; i < ne; i++) {
+          if (level[i] != -1) {
+            if (level[i] == prev) {
+              ms_rows_freq[2 * prev_i + 1]++;
+              if (ms_rows_freq[2 * prev_i] < t_nnz_rows[t_levels_idx[i]])
+                ms_rows_freq[2 * prev_i] = t_nnz_rows[t_levels_idx[i]];
+            } else {
+              // set the max nnz for all rows with a level
+              for (j = prev_i + 1; j < ns + idx_ia; j++)
+                ms_rows_freq[2 * j] = ms_rows_freq[2 * prev_i];
+
+              prev_i = ns + idx_ia;
+              prev = level[i];
+              ms_rows_freq[2 * prev_i + 1] = 1;
+              ms_rows_freq[2 * prev_i] = t_nnz_rows[t_levels_idx[i]];
+            }
+            idx_ia++;
+          }
+        }
+        // the last set of rows
+        for (j = prev_i + 1; j < ne; j++)
+          ms_rows_freq[2 * j] = ms_rows_freq[2 * prev_i];
+
+        idx_ia = 0;
+
+        for (i = ns; i < ne; i++) {
+
+          level_idx[i] = -1;
+          ii = t_levels_idx[i];
+          if (ii != -1) {
+            level_idx[ns + idx_ia] = ii;
+
+            for (jj = (A_diag_i[ii] + 1); jj < A_diag_i[ii + 1]; jj++) {
+              k = jj - (A_diag_i[ii] + 1);
+              ik = A_diag_j[jj];
+
+              ms_j[idx + k] = ik;
+              ms_data[idx + k] = A_diag_data[jj];
+
+              if (ik >= ns && ik < ne)
+                f_act_rows[idx + k] = 1;
+            }
+            idx += ms_rows_freq[2 * (ns + idx_ia)]; // max_nnz_row;
+
+            ms_i[idx_ia + 1] =
+                ms_i[idx_ia] +
+                (ms_rows_freq[2 * (ns + idx_ia)] /*max_nnz_row*/);
+            idx_ia++;
+          }
+        }
+
+        for (i = idx_ia + 1; i < (ne - ns); i++) {
+          ms_i[i] = ms_i[idx_ia];
+        }
+
+        // back substitution multi-level scheduling
+        for (i = ns; i < ne; i++)
+          level[i] = -1;
+
+        for (i = ne - 1; i > ns - 1; i--) {
+          m = -1;
+          rows[i] = -1;
+          if (A_diag->ms_vdata[i] != zero) {
+            rows[i] = i;
+#pragma _NEC novector
+            for (jj = A_diag_i[i]; jj < A_diag_i[i + 1]; jj++) {
+              ii = A_diag_j[jj];
+              if (ii >= ns && ii < ne) {
+                if (ii > i && m < level[ii])
+                  m = level[ii];
+                // if (ii < i)
+                //   level[ii] = m + 1;
+              }
+            }
+            if (level[i] > m + 1)
+              m = level[i];
+            else
+              level[i] = m + 1;
+#pragma _NEC novector
+            for (jj = A_diag_i[i]; jj < A_diag_i[i + 1]; jj++) {
+              ii = A_diag_j[jj];
+              if (ii >= ns && ii < ne) {
+                // if (ii > i && m < level[ii])
+                //   m = level[ii];
+                if (ii < i && A_diag->ms_vdata[ii] != zero)
+                  level[ii] = m + 1;
+              }
+            }
+          }
+        }
+
+        asl_sort_execute_i32(sort, nelem, &level[ns], &rows[ns], &level[ns],
+                             &t_levels_idx[ns]);
+        // copy data..
+        _ns = ns + t_id;
+        _ne = ne + t_id;
+        idx_ia = 0;
+        idx = 0;
+
+        ms_i = A_diag->ms_i + (n + num_threads) + _ns;
+        ms_i[0] = ns * max_nnz_row; // A_diag_i[ns];
+
+        ms_j = A_diag->ms_j + nnz + ms_i[0];
+        ms_data = A_diag->ms_data + nnz + ms_i[0];
+        f_act_rows = A_diag->f_act_rows + nnz + ms_i[0];
+        ms_rows_freq = A_diag->ms_rows_freq + 2 * n;
+        level_idx = A_diag->level_idx + n;
+
+        for (i = ns; i < ne; i++) {
+          ms_rows_freq[2 * i] = 0;
+          ms_rows_freq[2 * i + 1] = 0;
+        }
+
+        prev = -1; // level[ns];
+        prev_i = ns;
+        max_nnz = 0;
+        ms_rows_freq[2 * prev_i] = 0;
+        // if (prev != -1)
+        //   ms_rows_freq[2 * prev_i + 1] = 1;
+
+        for (i = ns; i < ne; i++) {
+          if (level[i] != -1) {
+            if (level[i] == prev) {
+              ms_rows_freq[2 * prev_i + 1]++;
+              if (ms_rows_freq[2 * prev_i] < t_nnz_rows[t_levels_idx[i]])
+                ms_rows_freq[2 * prev_i] = t_nnz_rows[t_levels_idx[i]];
+            } else {
+              // set the max nnz for all rows with a level
+              for (j = prev_i + 1; j < ns + idx_ia; j++)
+                ms_rows_freq[2 * j] = ms_rows_freq[2 * prev_i];
+
+              prev_i = ns + idx_ia;
+              prev = (level[i] != -1) ? level[i] : level[++i];
+              ms_rows_freq[2 * prev_i + 1] = 1;
+              ms_rows_freq[2 * prev_i] = t_nnz_rows[t_levels_idx[i]];
+            }
+            idx_ia++;
+          }
+        }
+        // set the last level
+        for (j = prev_i + 1; j < ne; j++)
+          ms_rows_freq[2 * j] = ms_rows_freq[2 * prev_i];
+
+        idx_ia = 0;
+        for (i = ns; i < ne; i++) {
+          level_idx[i] = -1;
+          ii = t_levels_idx[i];
+          if (ii != -1) {
+            level_idx[ns + idx_ia] = ii;
+
+            for (jj = (A_diag_i[ii] + 1); jj < A_diag_i[ii + 1]; jj++) {
+              k = jj - (A_diag_i[ii] + 1);
+              ik = A_diag_j[jj];
+
+              ms_j[idx + k] = ik;
+              ms_data[idx + k] = A_diag_data[jj];
+
+              if (ik >= ns && ik < ne)
+                f_act_rows[idx + k] = 1;
+            }
+            idx += /*max_nnz_row*/ ms_rows_freq[2 * (ns + idx_ia)];
+
+            ms_i[idx_ia + 1] =
+                ms_i[idx_ia] +
+                (/*max_nnz_row*/ ms_rows_freq[2 * (ns + idx_ia)]);
+            idx_ia++;
+          }
+        }
+
+        for (i = idx_ia + 1; i < (ne - ns); i++) {
+          ms_i[i] = ms_i[idx_ia];
+        }
+        //
+      }
+
+      /* Sorting Finalization */
+      asl_sort_destroy(sort);
+      /* Library Finalization */
+      asl_library_finalize();
+
+      // free aux arrays
+      free(level);
+      free(rows);
+
+#endif
+    }
+#ifdef HYPRE_USING_OPENMP
+#pragma omp parallel for private(i)
+#endif
+    for (i = 0; i < n; i++) {
+      A_offd_res[i] = f_data[i];
+    }
+    s_ierr = sblas_execute_mv_rd(SBLAS_TRANSPOSE, A_offd->hnd, -1.0, Vext_data,
+                                 1.0, A_offd_res);
+
+    /*-----------------------------------------------------------------
+     * End of level scheduling.
+     *-----------------------------------------------------------------*/
+
     if (relax_weight == 1 && omega == 1) {
       if (relax_points == 0) {
+
+        // fprintf(stderr, "from case 6\n");
+        // Essam: solver 61 & 1
         if (num_threads > 1) {
+#if 0 // original implementation
+
           tmp_data = Ztemp_data;
 #ifdef HYPRE_USING_OPENMP
 #pragma omp parallel for private(i) HYPRE_SMP_SCHEDULE
@@ -2087,6 +2556,218 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
               }
             }
           }
+#else // modified implmentation
+          // #ifdef HYPRE_USING_OPENMP
+          // #pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest,
+          // size)      \
+//     firstprivate(u_data)
+          // #endif
+          //           {
+          //             HYPRE_Int ik, jk, t_id;
+          //             t_id = omp_get_thread_num();
+          //             size = n / num_threads;
+          //             rest = n - size * num_threads;
+          //             if (t_id < rest) {
+          //               ns = t_id * size + t_id;
+          //               ne = (t_id + 1) * size + t_id + 1;
+          //             } else {
+          //               ns = t_id * size + rest;
+          //               ne = (t_id + 1) * size + rest;
+          //             }
+          // #if 0
+          //             for (i = ns; i < ne; i++) /* interior points first */
+          //             {
+
+          //               /*-----------------------------------------------------------
+          //                * If diagonal is nonzero, relax point i; otherwise,
+          //                skip it.
+          //                *-----------------------------------------------------------*/
+
+          //               if (A_diag_data[A_diag_i[i]] != zero) {
+          //                 res = A_offd_res[i];
+          //                 for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1];
+          //                 jj++) {
+          //                   ii = A_diag_j[jj];
+          //                   res -= A_diag_data[jj] * u_data[ii];
+          //                 }
+          //                 u_data[i] = res / A_diag_data[A_diag_i[i]];
+          //               }
+          //             }
+          // #else
+          //             // forward updated with multi-level
+          //             HYPRE_Int freq;
+          //             HYPRE_Real freq_res[ne - ns];
+          //             for (ik = ns; ik < ne; ik++) {
+          //               i = A_diag->level_idx[ik];
+          //               if (i != -1) {
+          //                 freq = A_diag->ms_rows_freq[2 * i + 1];
+          //                 for (jk = 0; jk < freq; jk++) {
+          //                   i = A_diag->level_idx[ik + jk];
+          //                   freq_res[jk] = A_offd_res[i];
+          //                 }
+          //                 // #pragma _NEC collapse
+          //                 for (jk = 0; jk < freq; jk++) {
+          //                   // #pragma _NEC outerloop_unroll(16)
+          //                   for (jj = A_diag->ms_i[t_id + ik + jk];
+          //                        jj < A_diag->ms_i[t_id + ik + jk + 1]; jj++)
+          //                        {
+          //                     ii = A_diag->ms_j[jj];
+          //                     freq_res[jk] -= A_diag->ms_data[jj] *
+          //                     u_data[ii];
+          //                   }
+          //                 }
+          //                 // #pragma _NEC ivdep
+          //                 for (jk = 0; jk < freq; jk++) {
+          //                   i = A_diag->level_idx[ik + jk];
+          //                   u_data[i] = freq_res[jk] / A_diag->ms_vdata[i];
+          //                 }
+
+          //                 ik += freq;
+          //               }
+          //             }
+          // #endif
+          //             for (i = ne - 1; i > ns - 1; i--) /* interior points
+          //             first */
+          //             {
+
+          //               /*-----------------------------------------------------------
+          //                * If diagonal is nonzero, relax point i; otherwise,
+          //                skip it.
+          //                *-----------------------------------------------------------*/
+
+          //               if (A_diag_data[A_diag_i[i]] != zero) {
+          //                 res = A_offd_res[i];
+          //                 for (jj = A_diag_i[i] + 1; jj < A_diag_i[i + 1];
+          //                 jj++) {
+          //                   ii = A_diag_j[jj];
+          //                   res -= A_diag_data[jj] * u_data[ii];
+          //                 }
+          //                 u_data[i] = res / A_diag_data[A_diag_i[i]];
+          //               }
+          //             }
+          //           }
+  const int nnz = A_diag->max_nnz_row * n;
+
+#pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size)
+          {
+            double t_data[n];
+            for (i = 0; i < n; i++)
+              t_data[i] = u_data[i];
+            int freq;
+
+            int ik, jk;
+
+            t_id = omp_get_thread_num();
+            size = n / num_threads;
+            rest = n - size * num_threads;
+            if (t_id < rest) {
+              ns = t_id * size + t_id;
+              ne = (t_id + 1) * size + t_id + 1;
+            } else {
+              ns = t_id * size + rest;
+              ne = (t_id + 1) * size + rest;
+            }
+            double t_res[ne - ns];
+            int *level_idx = A_diag->level_idx;
+            int *ms_i = A_diag->ms_i;
+            int *ms_j = A_diag->ms_j;
+            int *ms_rows_freq = A_diag->ms_rows_freq;
+            double *ms_data = A_diag->ms_data;
+            // debug_print(t_id, "\noptimized implementation\n");
+            // const int MAX_NNZ = A_diag->max_nnz_row;
+            int MAX_NNZ;
+
+#if 1
+            // forward updated with multi-level
+            for (ik = ns; ik < ne; ik += MAX(1, freq)) {
+              i = level_idx[ik];
+              if (i != -1) {
+                freq = ms_rows_freq[2 * ik + 1];
+                MAX_NNZ = ms_rows_freq[2 * ik];
+                for (jk = 0; jk < freq; jk++) {
+                  i = level_idx[ik + jk];
+                  t_res[jk] = A_offd_res[i];
+                }
+
+                if (freq < MAX_NNZ) {
+                  for (jk = 0; jk < freq; jk++) {
+                    const int strt = ms_i[t_id + ik] + jk * MAX_NNZ;
+                    const int end = ms_i[t_id + ik] + (jk + 1) * MAX_NNZ;
+
+                    for (jj = strt; jj < end; jj++) {
+                      ii = ms_j[jj];
+                      t_res[jk] -= ms_data[jj] * t_data[ii];
+                    }
+                  }
+                } else {
+                  for (jj = 0; jj < MAX_NNZ; jj++) {
+                    for (jk = 0; jk < freq; jk++) {
+                      int jmp = ms_i[t_id + ik] + jk * MAX_NNZ;
+                      ii = ms_j[jmp + jj];
+                      t_res[jk] -= ms_data[jmp + jj] * t_data[ii];
+                    }
+                  }
+                }
+                for (jk = 0; jk < freq; jk++) {
+                  i = level_idx[ik + jk];
+                  t_data[i] = t_res[jk] / A_diag->ms_vdata[i];
+                }
+              }
+            }
+#endif
+
+// backward substitution
+#if 1
+
+            level_idx = A_diag->level_idx + n;
+            ms_i = A_diag->ms_i + (n + num_threads);
+            ms_j = A_diag->ms_j + nnz;
+            ms_rows_freq = A_diag->ms_rows_freq + 2 * n;
+            ms_data = A_diag->ms_data + nnz;
+            jk = 0;
+            freq = 0;
+            for (ik = ns; ik < ne; ik += MAX(freq, 1)) {
+              i = level_idx[ik];
+              if (i != -1) {
+                freq = ms_rows_freq[2 * ik + 1];
+                MAX_NNZ = ms_rows_freq[2 * ik];
+                for (jk = 0; jk < freq; jk++) {
+                  i = level_idx[ik + jk];
+                  t_res[jk] = A_offd_res[i];
+                }
+                if (freq < MAX_NNZ) {
+                  for (jk = 0; jk < freq; jk++) {
+                    const int strt = ms_i[t_id + ik] + jk * MAX_NNZ;
+                    const int end = ms_i[t_id + ik] + (jk + 1) * MAX_NNZ;
+
+                    for (jj = strt; jj < end; jj++) {
+                      ii = ms_j[jj];
+                      t_res[jk] -= ms_data[jj] * t_data[ii];
+                    }
+                  }
+                } else {
+                  for (jj = 0; jj < MAX_NNZ; jj++) {
+                    for (jk = 0; jk < freq; jk++) {
+                      int jmp = ms_i[t_id + ik] + jk * MAX_NNZ;
+                      ii = ms_j[jmp + jj];
+                      t_res[jk] -= ms_data[jmp + jj] * t_data[ii];
+                    }
+                  }
+                }
+
+                for (jk = 0; jk < freq; jk++) {
+                  i = level_idx[ik + jk];
+                  t_data[i] = t_res[jk] / A_diag->ms_vdata[i];
+                }
+              }
+            }
+#endif
+
+            for (i = ns; i < ne; i++)
+              u_data[i] = t_data[i];
+          }
+
+#endif
 
         } else {
           for (i = 0; i < n; i++) /* interior points first */
