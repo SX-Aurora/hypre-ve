@@ -47,7 +47,6 @@ HYPRE_Int  hypre_BoomerAMGRelaxIF( hypre_ParCSRMatrix *A,
       }
 
       for (i=0; i < 2; i++)
-      // i=1;
          Solve_err_flag = hypre_BoomerAMGRelax(A,
                                                f,
                                                cf_marker,

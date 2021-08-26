@@ -14,6 +14,9 @@
 #include <stdio.h>
 #include "Common.h"
 #include "Mem.h"
+#ifdef __ve__
+#include <sblas.h>
+#endif
 
 #ifndef _MATRIX_H
 #define _MATRIX_H
@@ -52,7 +55,14 @@ typedef struct
     hypre_MPI_Request *recv_req2;
     hypre_MPI_Request *send_req2;
     hypre_MPI_Status  *statuses;
-
+#ifdef __ve__
+   HYPRE_Int flag;
+   HYPRE_Int t_flag;
+   
+   sblas_handle_t hnd;
+   sblas_handle_t t_hnd;
+   
+#endif
     struct numbering *numb;
 }
 Matrix;
