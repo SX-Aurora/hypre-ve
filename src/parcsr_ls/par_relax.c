@@ -450,13 +450,13 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
           mrow, mrow, iaptr, iaind, avals, SBLAS_INDEXING_0, SBLAS_GENERAL,
           &A_offd->hnd); // handler
 
-      s_ierr = sblas_analyze_mv_rd(SBLAS_TRANSPOSE, A_offd->hnd);
+      s_ierr = sblas_analyze_mv_rd(SBLAS_NON_TRANSPOSE, A_offd->hnd);
 // multi-level scheduling
 #if 1
 
       // Essam: relaxation points can't be used in checking
       //        according to the algirthm it can be -1/1 or 0 ?!!
-
+      
       asl_sort_t sort;
       asl_library_initialize();
       asl_sort_create_i32(&sort, ASL_SORTORDER_ASCENDING,
@@ -657,6 +657,9 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
         int *level;
 
         int max_nnz_row = 0;
+
+        // fprintf(stderr, "AMG N: %d \t NNZ: %d\n", n, A_diag_i[n] - A_diag_i[0]);
+
 #pragma omp parallel for private(i, j) reduction(max : max_nnz_row)
         for (i = 0; i < n; i++) {
           j = A_diag_i[i + 1] - A_diag_i[i] /*- 1*/;
@@ -968,7 +971,7 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
     for (i = 0; i < n; i++) {
       A_offd_res[i] = f_data[i];
     }
-    s_ierr = sblas_execute_mv_rd(SBLAS_TRANSPOSE, A_offd->hnd, -1.0, Vext_data,
+    s_ierr = sblas_execute_mv_rd(SBLAS_NON_TRANSPOSE, A_offd->hnd, -1.0, Vext_data,
                                  1.0, A_offd_res);
 
     /*-----------------------------------------------------------------
@@ -2276,7 +2279,7 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
           mrow, mrow, iaptr, iaind, avals, SBLAS_INDEXING_0, SBLAS_GENERAL,
           &A_offd->hnd); // handler
 
-      s_ierr = sblas_analyze_mv_rd(SBLAS_TRANSPOSE, A_offd->hnd);
+      s_ierr = sblas_analyze_mv_rd(SBLAS_NON_TRANSPOSE, A_offd->hnd);
 // multi-level scheduling
 #if 1
 
@@ -2606,7 +2609,7 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
     for (i = 0; i < n; i++) {
       A_offd_res[i] = f_data[i];
     }
-    s_ierr = sblas_execute_mv_rd(SBLAS_TRANSPOSE, A_offd->hnd, -1.0, Vext_data,
+    s_ierr = sblas_execute_mv_rd(SBLAS_NON_TRANSPOSE, A_offd->hnd, -1.0, Vext_data,
                                  1.0, A_offd_res);
 
     /*-----------------------------------------------------------------
@@ -2618,7 +2621,7 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
 
         // fprintf(stderr, "from case 6\n");
         // Essam: solver 61 & 1
-        if (num_threads > 1) {
+        if (num_threads >= 1) {
 #if 0 // original implementation
 
           tmp_data = Ztemp_data;
