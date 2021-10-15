@@ -779,18 +779,18 @@ void MatrixMatvec(Matrix *mat, HYPRE_Real *x, HYPRE_Real *y) {
       }
     }
 
-    fprintf(stderr,
-            "ncols: %d\t nrows: %d\t nnz: %d\t(mat->recvlen + num_local): %d\n",
-            ncol, num_local, nnz, mat->recvlen + num_local);
+    // fprintf(stderr,
+    //         "ncols: %d\t nrows: %d\t nnz: %d\t(mat->recvlen + num_local): %d\n",
+    //         ncol, num_local, nnz, mat->recvlen + num_local);
     ncol = mat->recvlen + num_local;
 
     s_ierr = sblas_create_matrix_handle_from_csr_rd(num_local, ncol, _ia, _ja,
                                                     _data, SBLAS_INDEXING_0,
                                                     SBLAS_GENERAL, &mat->hnd);
 
-    fprintf(stderr, "create error: %d\n", s_ierr);
+    // fprintf(stderr, "create error: %d\n", s_ierr);
     s_ierr = sblas_analyze_mv_rd(SBLAS_NON_TRANSPOSE, mat->hnd);
-    fprintf(stderr, "analysis error: %d\n", s_ierr);
+    // fprintf(stderr, "analysis error: %d\n", s_ierr);
     if (SBLAS_OK == s_ierr)
       mat->flag = 1;
 
@@ -908,10 +908,10 @@ void MatrixMatvecTrans(Matrix *mat, HYPRE_Real *x, HYPRE_Real *y) {
       }
     }
 
-    fprintf(stderr,
-            "TRANS: ncols: %d\t nrows: %d\t nnz: %d \t (mat->recvlen + "
-            "num_local): %d\n",
-            ncol, num_local, nnz, mat->recvlen + num_local);
+    // fprintf(stderr,
+    //         "TRANS: ncols: %d\t nrows: %d\t nnz: %d \t (mat->recvlen + "
+    //         "num_local): %d\n",
+    //         ncol, num_local, nnz, mat->recvlen + num_local);
 
     // fprintf(stderr,
     //             "TRANS: ncols: %d\t nrows: %d\t nnz: %d\n",

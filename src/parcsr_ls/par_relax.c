@@ -456,7 +456,7 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
 
       // Essam: relaxation points can't be used in checking
       //        according to the algirthm it can be -1/1 or 0 ?!!
-      
+
       asl_sort_t sort;
       asl_library_initialize();
       asl_sort_create_i32(&sort, ASL_SORTORDER_ASCENDING,
@@ -658,7 +658,55 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
 
         int max_nnz_row = 0;
 
-        // fprintf(stderr, "AMG N: %d \t NNZ: %d\n", n, A_diag_i[n] - A_diag_i[0]);
+#if 0
+#include <stdio.h>
+#include <string.h>
+        int t = 0;
+        for (i = 0; i < n; i++)
+          t += A_diag_i[i + 1] - A_diag_i[i];
+
+        int length = snprintf(NULL, 0, "%d", t);
+        char nnz_str[50]; //= malloc(length + 1);
+        snprintf(nnz_str, length + 1, "%d", t);
+        FILE *fstat;
+        char *ext = "_amg_level_stat.out";
+        char *fname = strcat(nnz_str, ext);
+        fprintf(stderr, "%s\n", fname);
+
+        if ((fstat = fopen(fname, "w")) == NULL)
+          fprintf(stderr, "can't open file");
+        fprintf(fstat, "%d,%d\n", n,t);
+
+        int histo[n];
+        int histo_nnz_cnt[n];
+
+        for (i = 0; i < n; i++) {
+          histo[i] = 0;
+          histo_nnz_cnt[i] = -1;
+        }
+
+        for (i = 0; i < n; i++) {
+          int cols = (A_diag_i[i + 1] - A_diag_i[i] - 1);
+          j = 0;
+          for (; j < n; j++) {
+            if (histo_nnz_cnt[j] == cols || histo_nnz_cnt[j] == -1) {
+              break;
+            }
+          }
+          histo_nnz_cnt[j] = cols;
+          histo[j]++;
+        }
+
+        for (i = 0; i < n; i++)
+          if (histo_nnz_cnt[i] != -1)
+            fprintf(fstat, "%d,%d\n", histo_nnz_cnt[i], histo[i]);
+
+        fclose(fstat);
+
+#endif
+
+        // fprintf(stderr, "AMG N: %d \t NNZ: %d\n", n, A_diag_i[n] -
+        // A_diag_i[0]);
 
 #pragma omp parallel for private(i, j) reduction(max : max_nnz_row)
         for (i = 0; i < n; i++) {
@@ -971,8 +1019,8 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
     for (i = 0; i < n; i++) {
       A_offd_res[i] = f_data[i];
     }
-    s_ierr = sblas_execute_mv_rd(SBLAS_NON_TRANSPOSE, A_offd->hnd, -1.0, Vext_data,
-                                 1.0, A_offd_res);
+    s_ierr = sblas_execute_mv_rd(SBLAS_NON_TRANSPOSE, A_offd->hnd, -1.0,
+                                 Vext_data, 1.0, A_offd_res);
 
     /*-----------------------------------------------------------------
      * Relax all points.
@@ -1072,7 +1120,7 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
           HYPRE_Int nnz = A_diag->max_nnz_row * n; // A_diag_i[n] - A_diag_i[0];
 
 #ifdef HYPRE_USING_OPENMP
-#pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size)   
+#pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size)
 #endif
           {
             size = n / omp_get_num_threads();
@@ -2609,8 +2657,8 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
     for (i = 0; i < n; i++) {
       A_offd_res[i] = f_data[i];
     }
-    s_ierr = sblas_execute_mv_rd(SBLAS_NON_TRANSPOSE, A_offd->hnd, -1.0, Vext_data,
-                                 1.0, A_offd_res);
+    s_ierr = sblas_execute_mv_rd(SBLAS_NON_TRANSPOSE, A_offd->hnd, -1.0,
+                                 Vext_data, 1.0, A_offd_res);
 
     /*-----------------------------------------------------------------
      * End of level scheduling.
@@ -2619,9 +2667,9 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
     if (relax_weight == 1 && omega == 1) {
       if (relax_points == 0) {
 
-        // fprintf(stderr, "from case 6\n");
         // Essam: solver 61 & 1
         if (num_threads >= 1) {
+          
 #if 0 // original implementation
 
           tmp_data = Ztemp_data;
@@ -2782,6 +2830,7 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
           //             }
           //           }
           const int nnz = A_diag->max_nnz_row * n;
+        // fprintf(stderr, "from case 6\n");
 
 #pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size)
           {

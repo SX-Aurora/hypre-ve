@@ -89,7 +89,7 @@ typedef struct
    HYPRE_Int* ms_rhs_idx;
    HYPRE_Real* ms_data;
    HYPRE_Real* ms_vdata;
-HYPRE_Int max_nnz_row;
+   HYPRE_Int max_nnz_row;
 
 #endif
 
