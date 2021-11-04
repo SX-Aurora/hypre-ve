@@ -164,9 +164,11 @@ void MatrixDestroy(Matrix *mat) {
   free(mat->sendind);
   free(mat->sendbuf);
   free(mat->recvbuf);
-
+  // a bug when ftrace is enabled
+#ifndef _FTRACE
   sblas_destroy_matrix_handle(mat->hnd);
   sblas_destroy_matrix_handle(mat->t_hnd);
+#endif
 
   MemDestroy(mat->mem);
 

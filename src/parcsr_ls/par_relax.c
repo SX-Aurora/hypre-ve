@@ -431,6 +431,9 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
     /*-----------------------------------------------------------------
      * ESSAM: replace A_offd_i SpMV routine
      *-----------------------------------------------------------------*/
+#ifdef _FTRACE
+    ftrace_region_begin("RELAX_CF_POINT_DATA");
+#endif
 
     sblas_int_t s_ierr;
     HYPRE_Int jmp = 1, t_id, inc, nn;
@@ -1013,6 +1016,7 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
       asl_library_finalize();
 #endif
     }
+
 #ifdef HYPRE_USING_OPENMP
 #pragma omp parallel for private(i)
 #endif
@@ -1021,6 +1025,9 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
     }
     s_ierr = sblas_execute_mv_rd(SBLAS_NON_TRANSPOSE, A_offd->hnd, -1.0,
                                  Vext_data, 1.0, A_offd_res);
+#ifdef _FTRACE
+    ftrace_region_end("RELAX_CF_POINT_DATA");
+#endif
 
     /*-----------------------------------------------------------------
      * Relax all points.
@@ -2309,7 +2316,9 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
     /*-----------------------------------------------------------------
      * ESSAM: replace A_offd_i SpMV routine
      *-----------------------------------------------------------------*/
-
+#ifdef _FTRACE
+    ftrace_region_begin("RELAX_CF_CASE_6_DATA");
+#endif
     sblas_int_t s_ierr;
     HYPRE_Int jmp = 1, t_id, inc, nn;
     HYPRE_Real A_offd_res[global_num_rows];
@@ -2659,6 +2668,9 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
     }
     s_ierr = sblas_execute_mv_rd(SBLAS_NON_TRANSPOSE, A_offd->hnd, -1.0,
                                  Vext_data, 1.0, A_offd_res);
+#ifdef _FTRACE
+    ftrace_region_end("RELAX_CF_CASE_6_DATA");
+#endif
 
     /*-----------------------------------------------------------------
      * End of level scheduling.
@@ -2669,7 +2681,7 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
 
         // Essam: solver 61 & 1
         if (num_threads >= 1) {
-          
+
 #if 0 // original implementation
 
           tmp_data = Ztemp_data;
@@ -2830,8 +2842,10 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
           //             }
           //           }
           const int nnz = A_diag->max_nnz_row * n;
-        // fprintf(stderr, "from case 6\n");
-
+          // fprintf(stderr, "from case 6\n");
+#ifdef _FTRACE
+    ftrace_region_begin("RELAX_CF_CASE_6");
+#endif
 #pragma omp parallel private(i, ii, j, jj, t_id, ns, ne, res, rest, size)
           {
             double t_data[n];
@@ -2952,7 +2966,9 @@ HYPRE_Int hypre_BoomerAMGRelax(hypre_ParCSRMatrix *A, hypre_ParVector *f,
           }
 
 #endif
-
+#ifdef _FTRACE
+    ftrace_region_end("RELAX_CF_CASE_6");
+#endif
         } else {
           for (i = 0; i < n; i++) /* interior points first */
           {
