@@ -56,7 +56,7 @@ ${COMPILER_ROOT}/mpincc --version
 pushd ${HYPRE_ROOT}/src
 rm -rf ${PREFIX} >/dev/null
 
-make clean
+[ -f config/Makefile.config ] && make clean
 CC=${COMPILER_ROOT}/mpincc ./configure \
                 --disable-fortran \
                 --with-MPI \
